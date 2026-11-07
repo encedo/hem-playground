@@ -19,13 +19,17 @@ done, and the facts that have already cost time.
   its branch). Make the simulator pass them; do not bend a test.
 - **One Redis hash per module, named by its prefix.** Everything a module has is
   a field of that hash (`meta`, `dev`, `boot`, `k:<kid>`, `log`, `audit:<id>`).
-  Do not spread a module over several keys. Global state is `@settings`.
+  Do not spread a module over several keys. Global state is `@settings` and
+  `@reserved` (reserved prefix patterns).
+- **No passwords.** Sign-in is a one-time link by e-mail or Encedo OIDC; the role
+  (admin from `ADMIN_EMAILS`, otherwise owner) travels in the session. Every admin
+  route checks it: an owner sees only modules whose `meta.email` is theirs.
 - **Submodules, not copies.** `sdk/` is hem-sdk-js, `manager/` is encedo-manager.
   Changes to them are made in their own repositories, following their own
   CLAUDE.md; ask before pushing either.
 - **Nothing real goes in.** No keys, passwords or logs from a real module, no
   customer data. `.env` and `.local/` are ignored and stay so.
-- **The server is shared.** `attest.encedo.com` runs the production attestation
+- **The server is shared.** Its secrets (`/opt/hem-playground/.env`) never leave it. `attest.encedo.com` runs the production attestation
   service and pki.encedo.com. Show every change to its nginx, packages or
   certificates and wait for the owner's go; never touch the attest / pki files.
 - Commits end with the `Co-Authored-By` line. Interface and comments in British

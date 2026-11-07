@@ -101,26 +101,34 @@ export function messagePage(cfg, eyebrow, heading, text, extra = '') {
 }
 
 // ---- admin ------------------------------------------------------------------------------------
-export function adminShell(cfg, active, main, { count = 0, user = '' } = {}) {
+export function adminShell(cfg, active, main, { count = 0, user = '', role = 'admin' } = {}) {
   const nav = (href, label, key, c = '') => `<a href="${href}"${active === key ? ' class="active" aria-current="page"' : ''}>${label}${c !== '' ? ` <span class="pg-count">${c}</span>` : ''}</a>`;
-  return doc('Playground admin', `<div class="app">
-<aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>Playground admin</b><span>admin.${esc(cfg.domain)}</span></div></div>
-<nav class="nav">${nav('/', 'Modules', 'modules', count)}${nav('/settings', 'Settings', 'settings')}</nav>
-<div class="sidebar-foot"><span>Signed in as <span class="host">${esc(user)}</span></span><span>Registration: <span class="host">${esc(cfg.modeLabel)}</span></span><a href="/logout">Sign out</a></div></aside>
+  return doc(role === 'admin' ? 'Playground admin' : 'My modules', `<div class="app">
+<aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>${role === 'admin' ? 'Playground admin' : 'HEM Playground'}</b><span>admin.${esc(cfg.domain)}</span></div></div>
+<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count) + `<a href="https://${esc(cfg.domain)}/">Register another</a>`}</nav>
+<div class="sidebar-foot"><span>Signed in as <span class="host">${esc(user)}</span></span>${role === 'admin' ? `<span>Registration: <span class="host">${esc(cfg.modeLabel)}</span></span>` : ''}<a href="/logout">Sign out</a></div></aside>
 <main class="main">${main}</main></div>`);
 }
 
-export function signinPage(cfg, { error = null, oidc = true } = {}) {
-  return doc('Admin sign-in', `<div class="app centered"><div class="signin">
-<div class="brand">${MARK}<div class="name"><b>Playground admin</b><span>admin.${esc(cfg.domain)}</span></div></div>
-<form class="card lifted" method="post" action="/login"><div class="card-head"><span>Playground administration</span><span class="v">Signed out</span></div>
-<div class="card-body"><p class="eyebrow">Administrator</p><h1>Sign in to see every virtual module.</h1>
+export function signinPage(cfg, { error = null, oidc = true, email = '' } = {}) {
+  return doc('Sign in', `<div class="app centered"><div class="signin">
+<div class="brand">${MARK}<div class="name"><b>HEM Playground</b><span>admin.${esc(cfg.domain)}</span></div></div>
+<form class="card lifted" method="post" action="/login"><div class="card-head"><span>Your modules</span><span class="v">Signed out</span></div>
+<div class="card-body"><p class="eyebrow">Sign in</p><h1>Sign in to see your virtual modules.</h1>
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
-${oidc ? `<a class="button" href="/auth/oidc">Sign in with Encedo</a><p class="note">With your own HEM at ${esc(cfg.oidcHost)}; this panel never sees a password.</p>
-<div class="pg-or note"><span></span>or with a password<span></span></div>` : ''}
-<div class="field"><label for="u">User</label><input id="u" name="user" autocomplete="username" required></div>
-<div class="field"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
-<button class="button plain" type="submit">Sign in with the password</button>
-<p class="note">Either way, only accounts on the administrator list get in. Five wrong tries lock this address out for 15 minutes.</p>
+<div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" value="${esc(email)}" autocomplete="email" required></div>
+<button class="button" type="submit">Send me a sign-in link</button>
+<p class="note">The address you registered a module with. The link works once, within 15 minutes; there is no password.</p>
+${oidc ? `<div class="pg-or note"><span></span>or<span></span></div>
+<a class="button plain" href="/auth/oidc">Sign in with Encedo</a><p class="note">With your own HEM at ${esc(cfg.oidcHost)}.</p>` : ''}
 </div></form></div></div>`);
+}
+
+export function linkSentPage(cfg, email) {
+  return doc('Check your inbox', `<div class="app centered"><div class="signin">
+<div class="brand">${MARK}<div class="name"><b>HEM Playground</b><span>admin.${esc(cfg.domain)}</span></div></div>
+<section class="card lifted"><div class="card-head"><span>Sign-in link</span><span class="v">sent</span></div>
+<div class="card-body"><p class="eyebrow">Check your inbox</p><h1>If ${esc(email)} has a module here, the link is on its way.</h1>
+<p class="soft">It works once, within 15 minutes. Nothing arrives for an address that owns no module.</p>
+<a class="button plain" href="/login">Use another address</a></div></section></div></div>`);
 }

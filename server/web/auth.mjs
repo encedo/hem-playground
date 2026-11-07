@@ -1,8 +1,8 @@
-// Admin sign-in: a signed session cookie, password accounts from the environment
-// (scrypt hashes), and Encedo OIDC (authorization code + PKCE).
+// Sign-in: a link by e-mail (no passwords) or Encedo OIDC (authorization code + PKCE),
+// then a signed session cookie that carries the role.
 //
-//   ADMIN_USERS     "admin:scrypt.<salt b64>.<hash b64>,..."   (node server/tools/hash-password.mjs)
-//   ADMIN_EMAILS    "a@x.com,b@y.com"                          OIDC identities let in
+//   ADMIN_EMAILS    "a@x.com,b@y.com"   administrators (by sign-in link or Encedo OIDC);
+//                   anyone else who signs in sees the modules registered with their e-mail
 //   SESSION_SECRET  any long random string
 
 import crypto from 'node:crypto';
@@ -29,38 +29,31 @@ function unseal(v) {
   try { const o = JSON.parse(Buffer.from(p, 'base64url').toString()); return o.exp > Date.now() / 1000 ? o : null; } catch { return null; }
 }
 
-export function session(req) { return unseal(cookies(req).pg_s); }
-export const sessionCookie = (user, via) => setCookie('pg_s', seal({ u: user, via, exp: Math.floor(Date.now() / 1000) + SESSION_TTL }), SESSION_TTL);
+/** The signed-in person: { u, via, role: 'admin' | 'owner' }. Owners see their own modules only. */
+export function session(req) { const s = unseal(cookies(req).pg_s); if (s && !s.role) s.role = 'admin'; return s; }
+export const sessionCookie = (user, via, role = 'admin') => setCookie('pg_s', seal({ u: user, via, role, exp: Math.floor(Date.now() / 1000) + SESSION_TTL }), SESSION_TTL);
+export const isAdminEmail = (email) => admins.has(String(email).toLowerCase());
+
+// ---- sign-in link by e-mail (owners without an Encedo identity) ---------------------------------
+const usedLinks = new Map();                       // link id -> expiry, so a link works once
+const linkAsks = new Map();                        // ip -> { n, since }
+/** At most 5 link requests per address in 15 minutes. */
+export function linkThrottled(ip) {
+  const now = Date.now(), r = linkAsks.get(ip);
+  if (!r || now - r.since > 15 * 60_000) { linkAsks.set(ip, { n: 1, since: now }); return false; }
+  return ++r.n > 5;
+}
+export function linkToken(email) { return seal({ e: String(email).toLowerCase(), j: crypto.randomBytes(9).toString('base64url'), exp: Math.floor(Date.now() / 1000) + 900 }); }
+export function redeemLink(token) {
+  const t = unseal(token);
+  if (!t || !t.e || usedLinks.has(t.j)) return null;
+  const now = Date.now() / 1000;
+  for (const [k, v] of usedLinks) if (v < now) usedLinks.delete(k);
+  usedLinks.set(t.j, t.exp);
+  return t.e;
+}
 export const clearSession = () => setCookie('pg_s', '', 0);
 export const csrfToken = (sess) => sign(`csrf:${sess.u}:${sess.exp}`);
-
-// ---- passwords ----------------------------------------------------------------------------------
-const users = new Map((process.env.ADMIN_USERS ?? '').split(',').map((x) => x.trim()).filter(Boolean).map((x) => {
-  const i = x.indexOf(':'); return [x.slice(0, i), x.slice(i + 1)];
-}));
-const fails = new Map();                          // ip -> { n, until }
-
-export function hashPassword(pw) {
-  const salt = crypto.randomBytes(16);
-  // dots, not dollars: docker compose would read "$..." in .env as a variable
-  return `scrypt.${salt.toString('base64')}.${crypto.scryptSync(pw, salt, 32).toString('base64')}`;
-}
-
-export function checkPassword(ip, user, pw) {
-  const f = fails.get(ip);
-  if (f && f.until > Date.now()) return { locked: true };
-  const stored = users.get(user);
-  let ok = false;
-  if (stored && typeof pw === 'string') {
-    const [, salt, hash] = stored.split('.');
-    const got = crypto.scryptSync(pw, Buffer.from(salt, 'base64'), 32);
-    ok = crypto.timingSafeEqual(got, Buffer.from(hash, 'base64'));
-  }
-  if (ok) { fails.delete(ip); return { ok: true }; }
-  const n = (f?.n ?? 0) + 1;
-  fails.set(ip, { n, until: n >= 5 ? Date.now() + 15 * 60_000 : 0 });
-  return { ok: false, locked: n >= 5 };
-}
 
 // ---- OIDC ---------------------------------------------------------------------------------------
 const OIDC = {
@@ -114,7 +107,8 @@ export async function oidcFinish(req, query) {
     const u = await fetch(d.userinfo_endpoint, { headers: { Authorization: `Bearer ${tok.access_token}` } });
     if (u.ok) email = (await u.json()).email;
   }
-  if (!email || !admins.has(String(email).toLowerCase())) return { error: `${email ?? 'This identity'} is not on the administrator list.` };
-  return { email: String(email).toLowerCase() };
+  if (!email) return { error: 'The identity provider sent no e-mail address for this identity.' };
+  email = String(email).toLowerCase();
+  return { email, role: admins.has(email) ? 'admin' : 'owner' };
 }
 export const clearOidc = () => setCookie('pg_o', '', 0);

@@ -123,10 +123,23 @@ async function adminSite(req, res, url) {
   if (p.startsWith('/assets/')) return assets(res, p.slice(8));
   if (p === '/login' && req.method === 'GET') return html(res, 200, admin.signinPage(cfg, { oidc: auth.oidcEnabled() }));
   if (p === '/login' && req.method === 'POST') {
+    // a sign-in link by e-mail: to an administrator, or to the owner of at least one module;
+    // the answer is the same either way, so the page tells nobody who has an account here
     const f = await form(req);
-    const r = auth.checkPassword(clientIp(req), f.get('user') ?? '', f.get('password') ?? '');
-    if (r.ok) return redirect(res, '/', { 'Set-Cookie': auth.sessionCookie(f.get('user'), 'password') });
-    return html(res, 401, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: r.locked ? 'Too many wrong tries from this address. Try again in 15 minutes.' : 'That user and password do not match an administrator.' }));
+    const email = (f.get('email') ?? '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return html(res, 400, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: 'That does not look like an e-mail address.', email }));
+    if (auth.linkThrottled(clientIp(req))) return html(res, 429, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: 'Too many links asked for from this address. Try again in 15 minutes.', email }));
+    const owns = (await registry.all()).some((m) => m.email.toLowerCase() === email);
+    if (auth.isAdminEmail(email) || owns) {
+      const link = `https://admin.${DOMAIN}/login/link?t=${encodeURIComponent(auth.linkToken(email))}`;
+      await mailer.send(email, `Sign in to the HEM Playground`, `Open this link to sign in to admin.${DOMAIN}:\n\n${link}\n\nIt works once, within 15 minutes. If you did not ask for it, ignore this message.`).catch((e) => console.error('mail', e.message));
+    }
+    return html(res, 200, admin.linkSentPage(cfg, email));
+  }
+  if (p === '/login/link') {
+    const email = auth.redeemLink(url.searchParams.get('t') ?? '');
+    if (!email) return html(res, 401, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: 'This sign-in link has been used or is too old. Ask for a new one.' }));
+    return redirect(res, '/', { 'Set-Cookie': auth.sessionCookie(email, 'link', auth.isAdminEmail(email) ? 'admin' : 'owner') });
   }
   if (p === '/auth/oidc') {
     if (!auth.oidcEnabled()) return redirect(res, '/login');
@@ -136,7 +149,7 @@ async function adminSite(req, res, url) {
   if (p === '/auth/callback') {
     const r = await auth.oidcFinish(req, url.searchParams).catch((e) => ({ error: `The sign-in failed: ${e.message}` }));
     if (r.error) return html(res, 401, admin.signinPage(cfg, { oidc: true, error: r.error }), { 'Set-Cookie': auth.clearOidc() });
-    return redirect(res, '/', { 'Set-Cookie': [auth.sessionCookie(r.email, 'oidc'), auth.clearOidc()] });
+    return redirect(res, '/', { 'Set-Cookie': [auth.sessionCookie(r.email, 'oidc', r.role), auth.clearOidc()] });
   }
   if (p === '/logout') return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });
 
@@ -147,7 +160,12 @@ async function adminSite(req, res, url) {
     f = await form(req);
     if (f.get('csrf') !== auth.csrfToken(sess)) { res.writeHead(403, { 'Content-Type': 'text/plain' }); return res.end('The form is stale. Reload the page and try again.'); }
   }
-  const mods = await registry.all();
+  const isAdmin = sess.role === 'admin';
+  const all = await registry.all();
+  // an owner sees and acts on the modules registered with their e-mail, nothing else
+  const mods = isAdmin ? all : all.filter((x) => x.email.toLowerCase() === sess.u.toLowerCase());
+  const adminOnly = ['/settings', '/reserved', '/reserved/remove', '/create'];
+  if (!isAdmin && adminOnly.includes(p)) return redirect(res, '/');
   if (p === '/' && req.method === 'GET') return html(res, 200, admin.modulesPage(cfg, sess, mods, url.searchParams));
   if (p === '/settings') {
     if (req.method === 'POST') {
@@ -159,16 +177,32 @@ async function adminSite(req, res, url) {
         if (Number.isInteger(v) && v >= 0 && v <= 100000) s[k] = v;
       }
       if (s.logKeep !== undefined) s.logKeep = Math.max(10, Math.min(s.logKeep, 2000));
-      s.reserved = (f.get('reserved') ?? DEFAULT_SETTINGS.reserved).replace(/[^a-z0-9*\s-]/g, '').trim();
       await store.saveSettings(s);
       return html(res, 200, admin.settingsPage(await viewCfg(), sess, await registry.settings(), { count: mods.length, saved: true, mailOk: mailer.configured }));
     }
     return html(res, 200, admin.settingsPage(cfg, sess, await registry.settings(), { count: mods.length, mailOk: mailer.configured }));
   }
+  if (p === '/reserved' && req.method === 'GET') return html(res, 200, admin.reservedPage(cfg, sess, await registry.reservedList(), mods, url.searchParams, { count: mods.length }));
+  if (p === '/reserved' && req.method === 'POST') {
+    const r = await registry.reserve((f.get('patterns') ?? '').split(/[\s,]+/), f.get('kind'), f.get('note'), sess.u);
+    const done = r.ok.length ? `Reserved: ${r.ok.join(', ')}.` : null;
+    const error = r.bad.length ? `Not taken (a–z, 0–9, hyphens and *, up to 40, not a playground name): ${r.bad.join(', ')}.` : null;
+    return html(res, 200, admin.reservedPage(cfg, sess, await registry.reservedList(), mods, new URLSearchParams(), { count: mods.length, done, error }));
+  }
+  if (p === '/reserved/remove' && req.method === 'POST') { await registry.unreserve(f.get('pattern') ?? ''); return redirect(res, '/reserved'); }
+  if (p === '/create' && req.method === 'POST') {
+    const values = { prefix: f.get('prefix') ?? '', email: f.get('email') ?? '', variant: f.get('variant') ?? 'PPA' };
+    const r = await registry.register(values, { byAdmin: true });
+    if (r.error) return html(res, 400, admin.modulesPage(cfg, sess, mods, url.searchParams, { values, error: r.error }));
+    return redirect(res, `/m/${r.meta.prefix}`);
+  }
   const m = /^\/m\/([a-z0-9-]+)(?:\/([a-z.]+))?$/.exec(p);
   if (m) {
     const prefix = m[1];
+    if (!mods.some((x) => x.prefix === prefix)) return redirect(res, '/');
     if (req.method === 'POST' && m[2]) {
+      const ownerActions = ['reboot', 'reset', 'delete'];
+      if (!isAdmin && !ownerActions.includes(m[2])) return redirect(res, `/m/${prefix}`);
       const r = await registry.act(prefix, m[2]);
       return redirect(res, r.gone ? '/' : `/m/${prefix}`);
     }
@@ -240,5 +274,6 @@ async function seed() {
   }
 }
 
+await registry.migrateReserved().catch((e) => console.error('reserved migration', e.message));
 await seed().catch((e) => console.error('seed', e.message));
 server.listen(PORT, () => console.log(`HEM Playground on :${PORT} for ${DOMAIN} (manager from ${MANAGER_DIR}, OIDC ${auth.oidcEnabled() ? 'on' : 'off'}, mail ${mailer.configured ? 'on' : 'log only'})`));

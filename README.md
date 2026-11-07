@@ -24,7 +24,7 @@ or proxy change.
 | Host | What |
 |---|---|
 | `playground.ence.do` | Register a module: prefix, e-mail, variant (PPA / EPA); `www.` redirects here |
-| `admin.playground.ence.do` | Admin panel: Encedo OIDC or a password account |
+| `admin.playground.ence.do` | Panel: sign in with a link by e-mail (no passwords) or Encedo OIDC. Administrators (`ADMIN_EMAILS`) see every module, reserved prefixes and settings; an owner sees and runs only the modules registered with their e-mail (reboot, reset, give the prefix up) |
 | `manager.playground.ence.do` | The Manager (the `manager/` submodule), opened with `?hem=https://<prefix>.playground.ence.do` |
 | `<prefix>.playground.ence.do` | One virtual module |
 
@@ -54,7 +54,7 @@ deploy/              Caddyfile for local runs
 test/                personalise a module, run the suites
 ```
 
-Redis holds **one hash per module, named by its prefix**; its fields are
+Reserved prefixes are the hash `@reserved` (pattern → kind brand / offensive / premium / other, note); the playground's own names are fixed in `registry.mjs`. Redis holds **one hash per module, named by its prefix**; its fields are
 `meta`, `dev`, `boot`, `k:<kid>` (one per key), `log` (the last requests) and
 `audit:<id>` (one audit-log file per boot). Global settings are the hash
 `@settings`.
@@ -75,11 +75,10 @@ Trust `.local/caddy-root.crt` once (browser, or `NODE_EXTRA_CA_CERTS` for Node).
 
 | Variable | |
 |---|---|
-| `ADMIN_USERS` | `admin:scrypt.<salt>.<hash>` — make one with `node server/tools/hash-password.mjs admin '<password>'` |
-| `ADMIN_EMAILS` | OIDC identities let into the admin panel |
+| `ADMIN_EMAILS` | administrators; everyone else who signs in is an owner of their own modules |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` | Encedo OIDC client (test: `https://test.oidc.encedo.com`) |
 | `SESSION_SECRET` | long random string |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | optional; without them only automatic registration is offered and mail goes to the log |
+| `SMTP_HOST`, `SMTP_MODE` (`starttls` / `ssl`), `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | sign-in links and e-mail confirmation; without them both go to the app log (`docker compose logs app`) |
 
 ## Test it
 

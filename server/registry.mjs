@@ -8,8 +8,18 @@ import { newBoot, newDevice, newLogFile, logAppend, LOG } from './sim/device.mjs
 export const DEFAULT_SETTINGS = {
   mode: 'auto',                // auto | email | approve
   modulesPerEmail: 3, keysPerModule: 512, rpm: 3000, idleDays: 30, logKeep: 200,
-  reserved: 'admin manager www api broker mail smtp playground test-*',
 };
+
+// Reserved prefixes. The system names are fixed here (the sites, and the DNS names
+// that have records of their own: acme / ns-acme are the certificate's acme-dns).
+// Everything else is the hash "@reserved": field = pattern (a-z 0-9 - and * for
+// "anything"), value = { kind, note, added, by }.
+export const RESERVED_KEY = '@reserved';
+export const SYSTEM_RESERVED = ['www', 'admin', 'manager', 'acme', 'ns-acme', 'api', 'broker', 'mail', 'smtp', 'mx', 'ns', 'ns1', 'ns2', 'playground', 'static', 'status', 'health'];
+export const RESERVED_KINDS = { brand: 'Brand', offensive: 'Offensive', premium: 'Premium', other: 'Other' };
+export const PATTERN_RE = /^[a-z0-9*-]{1,40}$/;
+const globRe = (p) => new RegExp('^' + p.split('*').map((x) => x.replace(/[-]/g, '\\-')).join('.*') + '$');
+export const patternMatches = (pattern, prefix) => globRe(pattern).test(prefix);
 export const MODE_LABEL = { auto: 'automatic', email: 'e-mail confirmation', approve: 'e-mail and approval' };
 
 /**
@@ -27,16 +37,51 @@ function factoryLogs(dev, boot) {
 export class Registry {
   constructor(store, domain, mailer) { Object.assign(this, { store, domain, mailer }); }
 
-  async settings() { return { ...DEFAULT_SETTINGS, ...(await this.store.settings()) }; }
+  async settings() { const { reserved, ...rest } = await this.store.settings(); return { ...DEFAULT_SETTINGS, ...rest }; }
 
-  isReserved(prefix, s) {
-    return s.reserved.split(/\s+/).filter(Boolean).some((r) => (r.endsWith('*') ? prefix.startsWith(r.slice(0, -1)) : prefix === r));
+  // ---- reserved prefixes ----------------------------------------------------------------
+  async reservedList() {
+    const raw = await this.store.redis.call('HGETALL', RESERVED_KEY);
+    const out = [];
+    for (let i = 0; i < raw.length; i += 2) out.push({ pattern: raw[i], ...JSON.parse(raw[i + 1]) });
+    return out.sort((a, b) => a.kind.localeCompare(b.kind) || a.pattern.localeCompare(b.pattern));
+  }
+  async reserve(patterns, kind, note, by) {
+    const now = Math.floor(Date.now() / 1000);
+    const ok = [], bad = [];
+    for (let p of patterns) {
+      p = p.trim().toLowerCase();
+      if (!p) continue;
+      if (!PATTERN_RE.test(p) || SYSTEM_RESERVED.includes(p)) { bad.push(p); continue; }
+      ok.push(p);
+    }
+    if (ok.length) {
+      const args = [];
+      for (const p of ok) args.push(p, JSON.stringify({ kind: RESERVED_KINDS[kind] ? kind : 'other', note: String(note ?? '').slice(0, 200), added: now, by }));
+      await this.store.redis.call('HSET', RESERVED_KEY, ...args);
+    }
+    return { ok, bad };
+  }
+  async unreserve(pattern) { await this.store.redis.call('HDEL', RESERVED_KEY, pattern); }
+  /** The rule that reserves `prefix`: { pattern, kind, system } or null. */
+  async reservedBy(prefix) {
+    if (SYSTEM_RESERVED.includes(prefix)) return { pattern: prefix, kind: 'system', system: true };
+    for (const r of await this.reservedList()) if (patternMatches(r.pattern, prefix)) return r;
+    return null;
+  }
+  /** One-off: the old space-separated settings field becomes rows of @reserved. */
+  async migrateReserved() {
+    const old = (await this.store.settings()).reserved;
+    if (typeof old !== 'string') return;
+    await this.reserve(old.split(/\s+/).filter((p) => p && !SYSTEM_RESERVED.includes(p)), 'other', 'from the earlier settings', 'migration');
+    await this.store.redis.call('HDEL', '@settings', 'reserved');
   }
 
-  /** Why `prefix` cannot be registered, or null. */
-  async whyNot(prefix, s) {
+  /** Why `prefix` cannot be registered, or null. byAdmin: reserved prefixes other than the system ones are allowed. */
+  async whyNot(prefix, s, { byAdmin = false } = {}) {
     if (!PREFIX_RE.test(prefix)) return 'A prefix is 3 to 32 characters of a–z, 0–9 and hyphens, starting and ending with a letter or digit.';
-    if (this.isReserved(prefix, s)) return `${prefix} is reserved.`;
+    const r = await this.reservedBy(prefix);
+    if (r && (r.system || !byAdmin)) return `${prefix} is not available.`;   // the reason stays with the administrator
     if (await this.store.exists(prefix)) return `${prefix}.${this.domain} is taken.`;
     return null;
   }
@@ -52,20 +97,23 @@ export class Registry {
     return out;
   }
 
-  async register({ prefix, email, variant }) {
+  /** byAdmin: a module the administrator makes for someone - reserved (not system) prefixes allowed, no limit, live at once. */
+  async register({ prefix, email, variant }, { byAdmin = false } = {}) {
     const s = await this.settings();
+    if (byAdmin) s.mode = 'auto';
     prefix = String(prefix ?? '').trim().toLowerCase();
     email = String(email ?? '').trim();
     variant = variant === 'EPA' ? 'EPA' : 'PPA';
-    const why = await this.whyNot(prefix, s);
+    const why = await this.whyNot(prefix, s, { byAdmin });
     if (why) return { error: why };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return { error: 'That does not look like an e-mail address.' };
-    if (s.modulesPerEmail > 0) {
+    if (s.modulesPerEmail > 0 && !byAdmin) {
       const mine = (await this.all()).filter((m) => m.email.toLowerCase() === email.toLowerCase()).length;
       if (mine >= s.modulesPerEmail) return { error: `${email} already has ${mine} modules, the most one address may have here.` };
     }
     const now = Math.floor(Date.now() / 1000);
     const meta = { prefix, email, variant, created: now, lastReq: 0, state: s.mode === 'auto' ? 'active' : 'unconfirmed' };
+    if (byAdmin) meta.byAdmin = true;
     if (s.mode !== 'auto') { meta.confirm = crypto.randomBytes(24).toString('base64url'); meta.confirmExp = now + 86400; }
     const { dev, boot } = createModule(variant, `${prefix}.${this.domain}`);
     await this.store.set(prefix, { meta, dev, boot, ...factoryLogs(dev, boot) });

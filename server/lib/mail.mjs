@@ -6,24 +6,31 @@ import tls from 'node:tls';
 
 export class Mailer {
   constructor(env = process.env) {
-    this.host = env.SMTP_HOST; this.port = Number(env.SMTP_PORT || 587);
-    this.user = env.SMTP_USER; this.pass = env.SMTP_PASS; this.from = env.MAIL_FROM || 'playground@ence.do';
+    // SMTP_MODE as in encedo-oidc: ssl (465, implicit TLS) or starttls (587); without it the port decides
+    this.mode = env.SMTP_MODE || (Number(env.SMTP_PORT) === 465 ? 'ssl' : 'starttls');
+    this.host = env.SMTP_HOST; this.port = Number(env.SMTP_PORT || (this.mode === 'ssl' ? 465 : 587));
+    this.user = env.SMTP_USER; this.pass = env.SMTP_PASS;
+    // MAIL_FROM may carry a display name, as in encedo-oidc: "Name<address>"
+    const from = String(env.MAIL_FROM ?? '').replace(/^"|"$/g, '').trim();
+    const m = /^(.*?)\s*<([^>]+)>$/.exec(from);
+    this.from = m ? m[2] : from;
+    this.fromHeader = m ? `${m[1] || 'HEM Playground'} <${m[2]}>` : `HEM Playground <${from}>`;
   }
-  get configured() { return !!this.host; }
+  get configured() { return !!(this.host && this.from); }
 
   async send(to, subject, text) {
     if (!this.configured) { console.log(`[mail] to ${to}: ${subject}\n${text}`); return; }
-    let sock = this.port === 465 ? tls.connect({ host: this.host, port: this.port, servername: this.host }) : net.connect({ host: this.host, port: this.port });
+    let sock = this.mode === 'ssl' ? tls.connect({ host: this.host, port: this.port, servername: this.host }) : net.connect({ host: this.host, port: this.port });
     let buf = '';
     const waiters = [];
     const onData = (d) => { buf += d.toString(); let m; while ((m = /^(\d{3}) .*\r\n/m.exec(buf))) { const end = buf.indexOf(m[0]) + m[0].length; const reply = buf.slice(0, end); buf = buf.slice(end); waiters.shift()?.(reply); } };
     const read = () => new Promise((r) => waiters.push(r));
     const cmd = async (line, ok = /^[23]/) => { if (line) sock.write(line + '\r\n'); const r = await read(); if (!ok.test(r)) throw new Error(`SMTP: ${line?.split(' ')[0]} → ${r.trim()}`); return r; };
     sock.on('data', onData);
-    await new Promise((res, rej) => { sock.once(this.port === 465 ? 'secureConnect' : 'connect', res); sock.once('error', rej); });
+    await new Promise((res, rej) => { sock.once(this.mode === 'ssl' ? 'secureConnect' : 'connect', res); sock.once('error', rej); });
     await cmd(null);
     await cmd(`EHLO playground`);
-    if (this.port !== 465) {
+    if (this.mode !== 'ssl') {
       await cmd('STARTTLS');
       sock.removeListener('data', onData);
       sock = tls.connect({ socket: sock, servername: this.host });
@@ -35,7 +42,7 @@ export class Mailer {
     await cmd(`MAIL FROM:<${this.from}>`);
     await cmd(`RCPT TO:<${to}>`);
     await cmd('DATA');
-    const body = [`From: HEM Playground <${this.from}>`, `To: <${to}>`, `Subject: ${subject}`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', ...text.split('\n').map((l) => (l.startsWith('.') ? '.' + l : l))].join('\r\n');
+    const body = [`From: ${this.fromHeader}`, `To: <${to}>`, `Subject: ${subject}`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', ...text.split('\n').map((l) => (l.startsWith('.') ? '.' + l : l))].join('\r\n');
     await cmd(`${body}\r\n.`);
     await cmd('QUIT', /^2/).catch(() => {});
     sock.end();
