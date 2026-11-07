@@ -32,7 +32,7 @@ export const date = (t) => (t ? new Date(t * 1000).toISOString().replace('T', ' 
 // ---- public site ------------------------------------------------------------------------------
 function publicShell(cfg, main) {
   return `<header class="pg-top"><div class="masthead pg-wrap"><a class="pg-brand" href="/">${MARK}<b>HEM Playground</b><span>${esc(cfg.domain)}</span></a>
-<nav class="row"><a href="https://docs.encedo.com/hem-api">API reference</a><a href="https://github.com/encedo/hem-sdk-js">hem-sdk-js</a></nav></div></header>
+<nav class="row"><a href="https://account.${esc(cfg.domain)}/">Your modules</a><a href="https://docs.encedo.com/hem-api">API reference</a><a href="https://github.com/encedo/hem-sdk-js">hem-sdk-js</a></nav></div></header>
 <main class="pg-wrap pg-main">${main}</main>
 <footer class="note pg-foot">Encedo HEM Playground · a test environment · nothing here is a real module</footer>`;
 }
@@ -73,7 +73,7 @@ export function registeredPage(cfg, m) {
   const url = `https://${m.prefix}.${cfg.domain}`;
   const mgr = `https://manager.${cfg.domain}/?hem=${encodeURIComponent(url)}`;
   const main = `<div class="page-head"><p class="eyebrow">Module registered</p><h1>${esc(m.prefix)}.${esc(cfg.domain)} is answering, and still in its box.</h1>
-<p>Personalise it in the Manager to choose its passwords; until then only the out-of-the-box endpoints answer.</p></div>
+<p>Personalise it in the Manager to choose its passwords; until then only the out-of-the-box endpoints answer. Reboot, reset or give it up later at <a href="https://account.${esc(cfg.domain)}/">account.${esc(cfg.domain)}</a>, signed in with ${esc(m.email)}.</p></div>
 <div class="card"><div class="card-head"><span class="v">${esc(m.prefix)}</span>${pill('active')}</div>
 <dl class="status-grid">
 <div><dt>Address</dt><dd class="mono">${esc(url)}</dd></div>
@@ -104,31 +104,33 @@ export function messagePage(cfg, eyebrow, heading, text, extra = '') {
 export function adminShell(cfg, active, main, { count = 0, user = '', role = 'admin' } = {}) {
   const nav = (href, label, key, c = '') => `<a href="${href}"${active === key ? ' class="active" aria-current="page"' : ''}>${label}${c !== '' ? ` <span class="pg-count">${c}</span>` : ''}</a>`;
   return doc(role === 'admin' ? 'Playground admin' : 'My modules', `<div class="app">
-<aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>${role === 'admin' ? 'Playground admin' : 'HEM Playground'}</b><span>admin.${esc(cfg.domain)}</span></div></div>
+<aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>${role === 'admin' ? 'Playground admin' : 'HEM Playground'}</b></div></div>
 <nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count) + `<a href="https://${esc(cfg.domain)}/">Register another</a>`}</nav>
 <div class="sidebar-foot"><span>Signed in as <span class="host">${esc(user)}</span></span>${role === 'admin' ? `<span>Registration: <span class="host">${esc(cfg.modeLabel)}</span></span>` : ''}<a href="/logout">Sign out</a></div></aside>
 <main class="main">${main}</main></div>`);
 }
 
 export function signinPage(cfg, { error = null, oidc = true, email = '' } = {}) {
+  const adm = cfg.site === 'admin';
   return doc('Sign in', `<div class="app centered"><div class="signin">
-<div class="brand">${MARK}<div class="name"><b>HEM Playground</b><span>admin.${esc(cfg.domain)}</span></div></div>
-<form class="card lifted" method="post" action="/login"><div class="card-head"><span>Your modules</span><span class="v">Signed out</span></div>
-<div class="card-body"><p class="eyebrow">Sign in</p><h1>Sign in to see your virtual modules.</h1>
+<div class="brand">${MARK}<div class="name"><b>${adm ? 'Playground admin' : 'HEM Playground'}</b></div></div>
+<form class="card lifted" method="post" action="/login"><div class="card-head"><span>${adm ? 'Administration' : 'Your modules'}</span><span class="v">Signed out</span></div>
+<div class="card-body"><p class="eyebrow">Sign in</p><h1>${adm ? 'Sign in to run the playground.' : 'Sign in to see your virtual modules.'}</h1>
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" value="${esc(email)}" autocomplete="email" required></div>
 <button class="button" type="submit">Send me a sign-in link</button>
-<p class="note">The address you registered a module with. The link works once, within 15 minutes; there is no password.</p>
+<p class="note">${adm ? 'For administrators only; the owner of a module signs in at' : 'The address you registered a module with. The link works once, within 15 minutes; there is no password. Administrators sign in at'} <a href="https://${adm ? 'account' : 'admin'}.${esc(cfg.domain)}/login">${adm ? 'account' : 'admin'}.${esc(cfg.domain)}</a>.</p>
 ${oidc ? `<div class="pg-or note"><span></span>or<span></span></div>
 <a class="button plain" href="/auth/oidc">Sign in with Encedo</a><p class="note">With your own HEM at ${esc(cfg.oidcHost)}.</p>` : ''}
 </div></form></div></div>`);
 }
 
 export function linkSentPage(cfg, email) {
+  const adm = cfg.site === 'admin';
   return doc('Check your inbox', `<div class="app centered"><div class="signin">
-<div class="brand">${MARK}<div class="name"><b>HEM Playground</b><span>admin.${esc(cfg.domain)}</span></div></div>
+<div class="brand">${MARK}<div class="name"><b>${adm ? 'Playground admin' : 'HEM Playground'}</b></div></div>
 <section class="card lifted"><div class="card-head"><span>Sign-in link</span><span class="v">sent</span></div>
-<div class="card-body"><p class="eyebrow">Check your inbox</p><h1>If ${esc(email)} has a module here, the link is on its way.</h1>
-<p class="soft">It works once, within 15 minutes. Nothing arrives for an address that owns no module.</p>
+<div class="card-body"><p class="eyebrow">Check your inbox</p><h1>If ${esc(email)} can sign in here, the link is on its way.</h1>
+<p class="soft">It works once, within 15 minutes, and opens the panel that address belongs to: the administration for an administrator, the modules for their owner. Nothing arrives for an address the playground does not know.</p>
 <a class="button plain" href="/login">Use another address</a></div></section></div></div>`);
 }

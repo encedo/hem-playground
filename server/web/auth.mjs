@@ -32,6 +32,8 @@ function unseal(v) {
 /** The signed-in person: { u, via, role: 'admin' | 'owner' }. Owners see their own modules only. */
 export function session(req) { const s = unseal(cookies(req).pg_s); if (s && !s.role) s.role = 'admin'; return s; }
 export const sessionCookie = (user, via, role = 'admin') => setCookie('pg_s', seal({ u: user, via, role, exp: Math.floor(Date.now() / 1000) + SESSION_TTL }), SESSION_TTL);
+/** One address, one role: an administrator signs in at admin.<domain>, everyone else at account.<domain>. */
+export const roleOf = (email) => (isAdminEmail(email) ? 'admin' : 'owner');
 export const isAdminEmail = (email) => admins.has(String(email).toLowerCase());
 
 // ---- sign-in link by e-mail (owners without an Encedo identity) ---------------------------------
@@ -43,14 +45,16 @@ export function linkThrottled(ip) {
   if (!r || now - r.since > 15 * 60_000) { linkAsks.set(ip, { n: 1, since: now }); return false; }
   return ++r.n > 5;
 }
-export function linkToken(email) { return seal({ e: String(email).toLowerCase(), j: crypto.randomBytes(9).toString('base64url'), exp: Math.floor(Date.now() / 1000) + 900 }); }
+/** A one-time sign-in token: by e-mail (15 minutes), or the hand-off of an OIDC sign-in to account.<domain> (1 minute). */
+export function linkToken(email, via = 'link') { return seal({ e: String(email).toLowerCase(), v: via, j: crypto.randomBytes(9).toString('base64url'), exp: Math.floor(Date.now() / 1000) + (via === 'link' ? 900 : 60) }); }
+/** { email, via } of a token that has not been used yet, or null. */
 export function redeemLink(token) {
   const t = unseal(token);
   if (!t || !t.e || usedLinks.has(t.j)) return null;
   const now = Date.now() / 1000;
   for (const [k, v] of usedLinks) if (v < now) usedLinks.delete(k);
   usedLinks.set(t.j, t.exp);
-  return t.e;
+  return { email: t.e, via: t.v ?? 'link' };
 }
 export const clearSession = () => setCookie('pg_s', '', 0);
 export const csrfToken = (sess) => sign(`csrf:${sess.u}:${sess.exp}`);
@@ -83,7 +87,7 @@ export async function oidcStart() {
   return { location: u.toString(), cookie: setCookie('pg_o', seal(st), 600) };
 }
 
-/** Finish the code flow. Returns { email } of an administrator, or { error }. */
+/** Finish the code flow. Returns { email, role }, or { error }. */
 export async function oidcFinish(req, query) {
   const st = unseal(cookies(req).pg_o);
   if (!st || query.get('state') !== st.state) return { error: 'The sign-in took too long or was started elsewhere. Start it again.' };
@@ -109,6 +113,6 @@ export async function oidcFinish(req, query) {
   }
   if (!email) return { error: 'The identity provider sent no e-mail address for this identity.' };
   email = String(email).toLowerCase();
-  return { email, role: admins.has(email) ? 'admin' : 'owner' };
+  return { email, role: roleOf(email) };
 }
 export const clearOidc = () => setCookie('pg_o', '', 0);

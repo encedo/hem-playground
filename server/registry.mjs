@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS = {
 // Everything else is the hash "@reserved": field = pattern (a-z 0-9 - and * for
 // "anything"), value = { kind, note, added, by }.
 export const RESERVED_KEY = '@reserved';
-export const SYSTEM_RESERVED = ['www', 'admin', 'manager', 'acme', 'ns-acme', 'api', 'broker', 'mail', 'smtp', 'mx', 'ns', 'ns1', 'ns2', 'playground', 'static', 'status', 'health'];
+export const SYSTEM_RESERVED = ['www', 'admin', 'account', 'manager', 'acme', 'ns-acme', 'api', 'broker', 'mail', 'smtp', 'mx', 'ns', 'ns1', 'ns2', 'playground', 'static', 'status', 'health'];
 export const RESERVED_KINDS = { brand: 'Brand', offensive: 'Offensive', premium: 'Premium', other: 'Other' };
 export const PATTERN_RE = /^[a-z0-9*-]{1,40}$/;
 const globRe = (p) => new RegExp('^' + p.split('*').map((x) => x.replace(/[-]/g, '\\-')).join('.*') + '$');

@@ -21,9 +21,12 @@ done, and the facts that have already cost time.
   a field of that hash (`meta`, `dev`, `boot`, `k:<kid>`, `log`, `audit:<id>`).
   Do not spread a module over several keys. Global state is `@settings` and
   `@reserved` (reserved prefix patterns).
-- **No passwords.** Sign-in is a one-time link by e-mail or Encedo OIDC; the role
-  (admin from `ADMIN_EMAILS`, otherwise owner) travels in the session. Every admin
-  route checks it: an owner sees only modules whose `meta.email` is theirs.
+- **No passwords.** Sign-in is a one-time link by e-mail or Encedo OIDC. An address
+  has one role: in `ADMIN_EMAILS` it is an administrator and signs in at `admin.`,
+  otherwise it is an owner and signs in at `account.`, seeing only modules whose
+  `meta.email` is theirs. The link always goes to the address's own site; OIDC has
+  one callback (on `admin.`) and hands an owner on to `account.` with a one-minute
+  token, so the OIDC client needs no second redirect URI.
 - **Submodules, not copies.** `sdk/` is hem-sdk-js, `manager/` is encedo-manager.
   Changes to them are made in their own repositories, following their own
   CLAUDE.md; ask before pushing either.
@@ -39,7 +42,7 @@ done, and the facts that have already cost time.
 ## How it is put together
 
 - `server/index.mjs` routes by host: `<domain>` public site (`www.` redirects), `admin.<domain>`
-  panel, `manager.<domain>` the Manager (static), `<prefix>.<domain>` a module.
+  and `account.<domain>` the panel, `manager.<domain>` the Manager (static), `<prefix>.<domain>` a module.
 - `server/sim/index.mjs` runs one request to one module **under that module's
   lock**: load → firmware pre-checks (`http.mjs`, in the firmware's order) →
   handler → save what the handler marked dirty → reply. A handler returns

@@ -1,6 +1,7 @@
 // HEM Playground: one HTTP server, routed by the Host header.
 //   <domain>            the public site: register a module
-//   admin.<domain>      the admin panel
+//   admin.<domain>      the admin panel (administrators)
+//   account.<domain>    the same panel for an owner: their own modules
 //   manager.<domain>    the Encedo Manager (static, from the manager/ submodule)
 //   <prefix>.<domain>   one virtual module
 // TLS is ended by the proxy in front (Caddy locally, nginx on the server), which
@@ -117,44 +118,60 @@ async function publicSite(req, res, url) {
   res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found');
 }
 
-async function adminSite(req, res, url) {
-  const cfg = await viewCfg();
+// admin.<domain> for administrators, account.<domain> for owners; one panel, two doors.
+// An address has one role (ADMIN_EMAILS or not), and its sign-in always lands on its own site.
+const siteOf = (role) => (role === 'admin' ? 'admin' : 'account');
+const siteUrl = (site, rest = '/') => `https://${site}.${DOMAIN}${rest}`;
+
+async function panelSite(req, res, url, site) {
+  const cfg = { ...(await viewCfg()), site };
   const p = url.pathname;
+  const signin = (status, o = {}) => html(res, status, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), ...o }));
   if (p.startsWith('/assets/')) return assets(res, p.slice(8));
-  if (p === '/login' && req.method === 'GET') return html(res, 200, admin.signinPage(cfg, { oidc: auth.oidcEnabled() }));
+  if (p === '/login' && req.method === 'GET') return signin(200);
   if (p === '/login' && req.method === 'POST') {
-    // a sign-in link by e-mail: to an administrator, or to the owner of at least one module;
-    // the answer is the same either way, so the page tells nobody who has an account here
+    // a sign-in link by e-mail: to an administrator, or to the owner of at least one module, each
+    // to their own site; the answer is the same either way, so the page tells nobody who is known here
     const f = await form(req);
     const email = (f.get('email') ?? '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return html(res, 400, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: 'That does not look like an e-mail address.', email }));
-    if (auth.linkThrottled(clientIp(req))) return html(res, 429, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: 'Too many links asked for from this address. Try again in 15 minutes.', email }));
-    const owns = (await registry.all()).some((m) => m.email.toLowerCase() === email);
-    if (auth.isAdminEmail(email) || owns) {
-      const link = `https://admin.${DOMAIN}/login/link?t=${encodeURIComponent(auth.linkToken(email))}`;
-      await mailer.send(email, `Sign in to the HEM Playground`, `Open this link to sign in to admin.${DOMAIN}:\n\n${link}\n\nIt works once, within 15 minutes. If you did not ask for it, ignore this message.`).catch((e) => console.error('mail', e.message));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return signin(400, { error: 'That does not look like an e-mail address.', email });
+    if (auth.linkThrottled(clientIp(req))) return signin(429, { error: 'Too many links asked for from this address. Try again in 15 minutes.', email });
+    const role = auth.roleOf(email);
+    const owns = role === 'owner' && (await registry.all()).some((m) => m.email.toLowerCase() === email);
+    if (role === 'admin' || owns) {
+      const to = siteOf(role);
+      const link = siteUrl(to, `/login/link?t=${encodeURIComponent(auth.linkToken(email))}`);
+      const what = role === 'admin' ? `the playground administration at ${to}.${DOMAIN}` : `your modules at ${to}.${DOMAIN}`;
+      await mailer.send(email, `Sign in to the HEM Playground`, `Open this link to sign in to ${what}:\n\n${link}\n\nIt works once, within 15 minutes. If you did not ask for it, ignore this message.`).catch((e) => console.error('mail', e.message));
     }
     return html(res, 200, admin.linkSentPage(cfg, email));
   }
   if (p === '/login/link') {
-    const email = auth.redeemLink(url.searchParams.get('t') ?? '');
-    if (!email) return html(res, 401, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), error: 'This sign-in link has been used or is too old. Ask for a new one.' }));
-    return redirect(res, '/', { 'Set-Cookie': auth.sessionCookie(email, 'link', auth.isAdminEmail(email) ? 'admin' : 'owner') });
+    const t = auth.redeemLink(url.searchParams.get('t') ?? '');
+    if (!t) return signin(401, { error: 'This sign-in link has been used or is too old. Ask for a new one.' });
+    const role = auth.roleOf(t.email);
+    // a link minted before the address changed role: hand it on to the site it belongs to now
+    if (siteOf(role) !== site) return redirect(res, siteUrl(siteOf(role), `/login/link?t=${encodeURIComponent(auth.linkToken(t.email, t.via))}`));
+    return redirect(res, '/', { 'Set-Cookie': auth.sessionCookie(t.email, t.via, role) });
   }
+  // OIDC has one callback, on admin.<domain>; an owner is handed on to account.<domain> from there
   if (p === '/auth/oidc') {
     if (!auth.oidcEnabled()) return redirect(res, '/login');
+    if (site !== 'admin') return redirect(res, siteUrl('admin', '/auth/oidc'));
     const s = await auth.oidcStart();
     return redirect(res, s.location, { 'Set-Cookie': s.cookie });
   }
-  if (p === '/auth/callback') {
+  if (p === '/auth/callback' && site === 'admin') {
     const r = await auth.oidcFinish(req, url.searchParams).catch((e) => ({ error: `The sign-in failed: ${e.message}` }));
     if (r.error) return html(res, 401, admin.signinPage(cfg, { oidc: true, error: r.error }), { 'Set-Cookie': auth.clearOidc() });
+    if (r.role !== 'admin') return redirect(res, siteUrl('account', `/login/link?t=${encodeURIComponent(auth.linkToken(r.email, 'oidc'))}`), { 'Set-Cookie': auth.clearOidc() });
     return redirect(res, '/', { 'Set-Cookie': [auth.sessionCookie(r.email, 'oidc', r.role), auth.clearOidc()] });
   }
   if (p === '/logout') return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });
 
   const sess = auth.session(req);
   if (!sess) return redirect(res, '/login');
+  if (siteOf(sess.role) !== site) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });   // a cookie from before the split
   let f = null;
   if (req.method === 'POST') {
     f = await form(req);
@@ -242,13 +259,14 @@ const server = http.createServer(async (req, res) => {
       // Caddy asks before it issues an on-demand certificate: only for our own names and registered prefixes
       const d = (new URL(req.url, 'http://x').searchParams.get('domain') ?? '').toLowerCase();
       const sub = d.endsWith(`.${DOMAIN}`) ? d.slice(0, -DOMAIN.length - 1) : null;
-      const ok = d === DOMAIN || ['admin', 'manager', 'www'].includes(sub) || (sub && /^[a-z0-9-]+$/.test(sub) && await store.exists(sub));
+      const ok = d === DOMAIN || ['admin', 'account', 'manager', 'www'].includes(sub) || (sub && /^[a-z0-9-]+$/.test(sub) && await store.exists(sub));
       res.writeHead(ok ? 200 : 404); return res.end();
     }
     // the public site is the bare domain; www. redirects to it
     if (host === DOMAIN) return await publicSite(req, res, new URL(req.url, 'http://x'));
     if (host === `www.${DOMAIN}`) return redirect(res, `https://${DOMAIN}${req.url}`);
-    if (host === `admin.${DOMAIN}`) return await adminSite(req, res, new URL(req.url, 'http://x'));
+    if (host === `admin.${DOMAIN}`) return await panelSite(req, res, new URL(req.url, 'http://x'), 'admin');
+    if (host === `account.${DOMAIN}`) return await panelSite(req, res, new URL(req.url, 'http://x'), 'account');
     if (host === `manager.${DOMAIN}`) return await managerSite(req, res, new URL(req.url, 'http://x'));
     if (host.endsWith(`.${DOMAIN}`)) {
       const prefix = host.slice(0, -DOMAIN.length - 1);

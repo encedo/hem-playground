@@ -24,11 +24,12 @@ or proxy change.
 | Host | What |
 |---|---|
 | `playground.ence.do` | Register a module: prefix, e-mail, variant (PPA / EPA); `www.` redirects here |
-| `admin.playground.ence.do` | Panel: sign in with a link by e-mail (no passwords) or Encedo OIDC. Administrators (`ADMIN_EMAILS`) see every module, reserved prefixes and settings; an owner sees and runs only the modules registered with their e-mail (reboot, reset, give the prefix up) |
+| `admin.playground.ence.do` | Administration: every module, reserved prefixes, settings. Only the addresses in `ADMIN_EMAILS` sign in here |
+| `account.playground.ence.do` | The same panel for an owner: the modules registered with their e-mail (reboot, reset, give the prefix up) |
 | `manager.playground.ence.do` | The Manager (the `manager/` submodule), opened with `?hem=https://<prefix>.playground.ence.do` |
 | `<prefix>.playground.ence.do` | One virtual module |
 
-Locally the domain is `localhost`: `https://localhost`, `https://admin.localhost`,
+Locally the domain is `localhost`: `https://localhost`, `https://admin.localhost`, `https://account.localhost`,
 `https://manager.localhost`, `https://<prefix>.localhost`.
 
 ## Layout

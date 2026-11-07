@@ -1,4 +1,4 @@
-// admin.<domain>: sign-in, the module list, one module, settings.
+// The panel, at admin.<domain> (administrators) and account.<domain> (owners): sign-in, modules, settings.
 
 import { esc, pill, ago, date, adminShell, signinPage, linkSentPage } from './ui.mjs';
 import * as auth from './auth.mjs';
