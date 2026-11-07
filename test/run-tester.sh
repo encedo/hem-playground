@@ -9,7 +9,8 @@ HEM_DOMAIN=${HEM_DOMAIN:-test.localhost}
 [ "$(git -C "$TESTER_DIR" branch --show-current)" = fw-1.3.x ] || echo "warning: $TESTER_DIR is not on fw-1.3.x" >&2
 docker image inspect hem-tester:php >/dev/null 2>&1 || docker build -q -t hem-tester:php -f test/tester.Dockerfile test >/dev/null
 TESTS=${*:-$(cd "$TESTER_DIR" && ls test_*.php | sort -t_ -k2 -n | tr '\n' ' ')}
-docker run --rm --network host --add-host "$HEM_DOMAIN:127.0.0.1" \
+case "$HEM_DOMAIN" in *.localhost) ADDHOST="--add-host $HEM_DOMAIN:127.0.0.1" ;; *) ADDHOST= ;; esac
+docker run --rm --network host $ADDHOST \
   -e HEM_DOMAIN="$HEM_DOMAIN" -e AUTHKEY -e DEBUG -e TESTER \
   -v "$(realpath "$TESTER_DIR"):/tester:ro" -v "$PWD/test/tester-config.php:/cfg/append.php:ro" \
   -v "$PWD/.local/caddy-root.crt:/usr/local/share/ca-certificates/playground.crt:ro" \
