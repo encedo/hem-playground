@@ -16,17 +16,18 @@ playground, not from Encedo). Never put a real key or secret in it.
 
 ## Sites
 
-One Node process, routed by the `Host` header; DNS only has a wildcard to the
-server, so a new module needs no DNS or proxy change.
+One Node process, routed by the `Host` header (on HTTPS: the TLS server name).
+DNS has only the wildcard `*.playground.ence.do` pointing to the server and TLS
+one wildcard certificate, so a new module needs no DNS, certificate or proxy change.
 
 | Host | What |
 |---|---|
-| `playground.ence.do` | Register a module: prefix, e-mail, variant (PPA / EPA) |
+| `www.playground.ence.do` | Register a module: prefix, e-mail, variant (PPA / EPA). The bare `playground.ence.do`, if it ever points here, redirects to it |
 | `admin.playground.ence.do` | Admin panel: Encedo OIDC or a password account |
 | `manager.playground.ence.do` | The Manager (the `manager/` submodule), opened with `?hem=https://<prefix>.playground.ence.do` |
 | `<prefix>.playground.ence.do` | One virtual module |
 
-Locally the domain is `localhost`: `https://localhost`, `https://admin.localhost`,
+Locally the domain is `localhost`: `https://www.localhost`, `https://admin.localhost`,
 `https://manager.localhost`, `https://<prefix>.localhost`.
 
 ## Layout

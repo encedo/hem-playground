@@ -70,7 +70,7 @@ export class Registry {
     const { dev, boot } = createModule(variant, `${prefix}.${this.domain}`);
     await this.store.set(prefix, { meta, dev, boot, ...factoryLogs(dev, boot) });
     if (s.mode !== 'auto') {
-      const link = `https://${this.domain}/confirm?p=${encodeURIComponent(prefix)}&t=${meta.confirm}`;
+      const link = `https://www.${this.domain}/confirm?p=${encodeURIComponent(prefix)}&t=${meta.confirm}`;
       await this.mailer.send(email, `Confirm ${prefix}.${this.domain}`,
         `Open this link to confirm the virtual module ${prefix}.${this.domain}:\n\n${link}\n\nThe link is good for 24 hours. If you did not ask for it, ignore this message and the prefix is freed.`);
     }

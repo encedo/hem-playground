@@ -31,7 +31,7 @@ export const date = (t) => (t ? new Date(t * 1000).toISOString().replace('T', ' 
 
 // ---- public site ------------------------------------------------------------------------------
 function publicShell(cfg, main) {
-  return `<header class="pg-top"><div class="masthead pg-wrap"><a class="pg-brand" href="/">${MARK}<b>HEM Playground</b><span>${esc(cfg.domain)}</span></a>
+  return `<header class="pg-top"><div class="masthead pg-wrap"><a class="pg-brand" href="/">${MARK}<b>HEM Playground</b><span>www.${esc(cfg.domain)}</span></a>
 <nav class="row"><a href="https://docs.encedo.com/hem-api">API reference</a><a href="https://github.com/encedo/hem-sdk-js">hem-sdk-js</a></nav></div></header>
 <main class="pg-wrap pg-main">${main}</main>
 <footer class="note pg-foot">Encedo HEM Playground · a test environment · nothing here is a real module</footer>`;

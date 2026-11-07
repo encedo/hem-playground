@@ -211,7 +211,9 @@ const server = http.createServer(async (req, res) => {
       const ok = d === DOMAIN || ['admin', 'manager', 'www'].includes(sub) || (sub && /^[a-z0-9-]+$/.test(sub) && await store.exists(sub));
       res.writeHead(ok ? 200 : 404); return res.end();
     }
-    if (host === DOMAIN || host === `www.${DOMAIN}`) return await publicSite(req, res, new URL(req.url, 'http://x'));
+    // the public site lives on www.<domain>: covered by the wildcard DNS record and certificate
+    if (host === `www.${DOMAIN}`) return await publicSite(req, res, new URL(req.url, 'http://x'));
+    if (host === DOMAIN) return redirect(res, `https://www.${DOMAIN}${req.url}`);
     if (host === `admin.${DOMAIN}`) return await adminSite(req, res, new URL(req.url, 'http://x'));
     if (host === `manager.${DOMAIN}`) return await managerSite(req, res, new URL(req.url, 'http://x'));
     if (host.endsWith(`.${DOMAIN}`)) {
