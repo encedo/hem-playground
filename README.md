@@ -97,24 +97,32 @@ alone and only pointed at the module:
 test/run-tester.sh test_1.php test_3.php test_4.php     # or no argument: every test
 ```
 
-State of the suites against `test.localhost`:
+State of the suites (local `test.localhost` and production `test.playground.ence.do`):
 
 | Suite | Result |
 |---|---|
 | `sdk/test/device.mjs` | 35 / 35 |
-| tester T-1, T-3, T-4, T-9, T-10, T-11, T-12, T-14, T-15 | PASS (DIAG subtests skipped, as on a release build) |
+| tester T-1, T-3, T-4, T-9, T-10, T-11, T-12, T-14 | PASS (DIAG subtests skipped, as on a release build) |
+| T-5, T-6 | PASS with `EXTAUTH=1` (`ExtAuth_Simulator.php` as the phone, through the real api.encedo.com) |
+| T-7 | 7.2 (firmware upload) and 7.3 (Manager upload) PASS with `TESTER_INPUT='2\n'` / `'3\n'`; 7.1 flashes over USB, not for a virtual module |
+| T-8 | PASS (8.1; 8.2–8.5 need a DIAG build) |
 | T-13 | 13.1–13.5 pass; 13.6 needs a device certificate chained to the Encedo Root CA — a virtual module is not genuine |
+| T-15 | PASS locally; on production 15.13 gets nginx's own 400 for Transfer-Encoding + Content-Length (the firmware says 501) |
 | T-2, T-16 | not on the playground: they register `my.ence.do` at api.encedo.com with the genuine token (T-16 runs T-2 per policy); `test/personalise.mjs` personalises the same way without that step |
-| T-5, T-6, T-7, T-8 | interactive (phone or `ExtAuth_Simulator.php`, prompts) |
 
 Reset the module (admin panel, or `docker compose exec redis redis-cli DEL test`
 and restart `app`) before a run that starts from a module in its box.
 
 ## Deploy
 
-The image is built locally, copied to the server and loaded there; the host's
-nginx ends TLS for `*.playground.ence.do` and proxies to the container with
-`X-Forwarded-Proto`. Details in `deploy/` once the server side is agreed.
+`deploy/deploy.sh` streams the build context over ssh and builds the image on
+the server (amd64), then restarts it with `deploy/compose.prod.yaml` in
+`/opt/hem-playground` (its `.env` lives only there). The host's nginx
+(`deploy/nginx-playground.conf`, `deploy/playground-proxy.conf`; needs
+`libnginx-mod-http-headers-more-filter` to drop the `Server` header) ends TLS for
+`playground.ence.do` and `*.playground.ence.do` with one Let's Encrypt
+certificate, issued and renewed through a CNAME to acme-dns on the same host
+(`deploy/acme-dns/`).
 
 ## Differences from a real module
 
@@ -123,6 +131,8 @@ nginx ends TLS for `*.playground.ence.do` and proxies to the container with
   brick) are reported but never carried out.
 - No TLS key import, CSR or provisioning: the playground ends TLS itself.
 - Firmware and Manager uploads are accepted and "verified", nothing is installed.
+- There is no disk: `storage/unlock` / `lock` change the state `status` reports
+  (`:ro`, `:rw`, `:-`) and write the audit entries, nothing is exposed anywhere.
 - The TLS records in the key repository ("TLS PrivateKey", "TLS Certificate") are
   made at personalisation with a self-signed certificate; the proxy serves the real one.
 - After a factory wipe `status` reports `https: false` until the TLS bootstrap,
