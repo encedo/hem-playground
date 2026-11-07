@@ -21,7 +21,7 @@ export function modulesPage(cfg, sess, mods, query) {
   const shown = mods.filter((m) => (filter === 'all' || m.state === filter) && (!q || m.prefix.includes(q) || m.email.toLowerCase().includes(q)))
     .sort((a, b) => (b.lastReq || b.created) - (a.lastReq || a.created));
   const head = mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
-  const lede = mods.length === 0 ? `The first one appears here as soon as someone registers at www.${esc(cfg.domain)}.`
+  const lede = mods.length === 0 ? `The first one appears here as soon as someone registers at ${esc(cfg.domain)}.`
     : `${word(counts.active, true)} ${plural(counts.active, 'answers', 'answer')} requests${counts.blocked ? `, ${word(counts.blocked)} ${plural(counts.blocked, 'is', 'are')} blocked` : ''}${counts.unconfirmed ? `, ${word(counts.unconfirmed)} ${plural(counts.unconfirmed, 'waits', 'wait')} for an e-mail to be confirmed` : ''}. Registration is ${esc(MODE_LABEL[cfg.mode])}.`;
   const seg = (key, label) => `<a href="/?state=${key}${q ? `&q=${encodeURIComponent(q)}` : ''}"${filter === key ? ' class="on"' : ''}>${label} ${counts[key]}</a>`;
   const needs = waiting.length ? `<section class="card needs"><div class="card-head"><span>Needs you</span><span>${waiting.length} ${plural(waiting.length, 'registration', 'registrations')}</span></div>

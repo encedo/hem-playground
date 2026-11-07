@@ -34,7 +34,7 @@ done, and the facts that have already cost time.
 
 ## How it is put together
 
-- `server/index.mjs` routes by host: `www.<domain>` public site, `admin.<domain>`
+- `server/index.mjs` routes by host: `<domain>` public site (`www.` redirects), `admin.<domain>`
   panel, `manager.<domain>` the Manager (static), `<prefix>.<domain>` a module.
 - `server/sim/index.mjs` runs one request to one module **under that module's
   lock**: load → firmware pre-checks (`http.mjs`, in the firmware's order) →
