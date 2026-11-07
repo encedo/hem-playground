@@ -1,0 +1,20 @@
+# On the server: the app on 127.0.0.1:8090 behind the host nginx, Redis on a private network.
+services:
+  app:
+    image: hem-playground:latest
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      REDIS_URL: redis://redis:6379
+      DOMAIN: playground.ence.do
+      OIDC_REDIRECT_URI: https://admin.playground.ence.do/auth/callback
+    ports: ["127.0.0.1:8090:8080"]
+    depends_on: [redis]
+    mem_limit: 512m
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "100", "--maxmemory", "256mb"]
+    volumes: [redis:/data]
+volumes:
+  redis:

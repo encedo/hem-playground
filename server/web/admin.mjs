@@ -1,0 +1,113 @@
+// admin.<domain>: sign-in, the module list, one module, settings.
+
+import { esc, pill, ago, date, adminShell, signinPage } from './ui.mjs';
+import * as auth from './auth.mjs';
+import { MODE_LABEL } from '../registry.mjs';
+
+const NUM = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+const word = (n, cap = false) => { const w = NUM[n] ?? String(n); return cap ? w[0].toUpperCase() + w.slice(1) : w; };
+const plural = (n, one, many) => (n === 1 ? one : many);
+
+function moduleUrl(cfg, p) { return `https://${p}.${cfg.domain}`; }
+function managerUrl(cfg, p) { return `https://manager.${cfg.domain}/?hem=${encodeURIComponent(moduleUrl(cfg, p))}`; }
+const actForm = (prefix, action, label, csrf, cls = 'plain') => `<form method="post" action="/m/${esc(prefix)}/${action}"><input type="hidden" name="csrf" value="${esc(csrf)}"><button class="button small ${cls}" type="submit">${label}</button></form>`;
+
+export function modulesPage(cfg, sess, mods, query) {
+  const csrf = auth.csrfToken(sess);
+  const waiting = mods.filter((m) => m.state === 'pending');
+  const counts = { all: mods.length, active: mods.filter((m) => m.state === 'active').length, pending: waiting.length, blocked: mods.filter((m) => m.state === 'blocked').length, unconfirmed: mods.filter((m) => m.state === 'unconfirmed').length };
+  const filter = ['active', 'pending', 'blocked', 'unconfirmed'].includes(query.get('state')) ? query.get('state') : 'all';
+  const q = (query.get('q') ?? '').trim().toLowerCase();
+  const shown = mods.filter((m) => (filter === 'all' || m.state === filter) && (!q || m.prefix.includes(q) || m.email.toLowerCase().includes(q)))
+    .sort((a, b) => (b.lastReq || b.created) - (a.lastReq || a.created));
+  const head = mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
+  const lede = mods.length === 0 ? `The first one appears here as soon as someone registers at ${esc(cfg.domain)}.`
+    : `${word(counts.active, true)} ${plural(counts.active, 'answers', 'answer')} requests${counts.blocked ? `, ${word(counts.blocked)} ${plural(counts.blocked, 'is', 'are')} blocked` : ''}${counts.unconfirmed ? `, ${word(counts.unconfirmed)} ${plural(counts.unconfirmed, 'waits', 'wait')} for an e-mail to be confirmed` : ''}. Registration is ${esc(MODE_LABEL[cfg.mode])}.`;
+  const seg = (key, label) => `<a href="/?state=${key}${q ? `&q=${encodeURIComponent(q)}` : ''}"${filter === key ? ' class="on"' : ''}>${label} ${counts[key]}</a>`;
+  const needs = waiting.length ? `<section class="card needs"><div class="card-head"><span>Needs you</span><span>${waiting.length} ${plural(waiting.length, 'registration', 'registrations')}</span></div>
+<div class="table-wrap"><table><thead><tr><th>Prefix</th><th>E-mail</th><th>Variant</th><th>Confirmed</th><th></th></tr></thead><tbody>
+${waiting.map((m) => `<tr><td class="mono">${esc(m.prefix)}</td><td class="mono">${esc(m.email)}</td><td class="mono">${esc(m.variant)}</td><td class="mono">${date(m.confirmed)}</td>
+<td><div class="acts">${actForm(m.prefix, 'approve', 'Approve', csrf, '')}${actForm(m.prefix, 'reject', 'Reject', csrf)}</div></td></tr>`).join('')}
+</tbody></table></div></section>` : '';
+  const rows = shown.map((m) => `<tr><td class="mono"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td><td class="mono">${esc(m.email)}</td><td class="mono">${esc(m.variant)}</td>
+<td>${pill(m.state)}</td><td>${m.inited ? 'Yes' : 'Not yet'}</td><td class="mono">${m.keys}</td><td class="mono">${ago(m.lastReq)}</td>
+<td><div class="acts">${m.state === 'active' ? `<a class="button small plain" href="${esc(managerUrl(cfg, m.prefix))}">Open in the Manager</a>` : ''}</div></td></tr>`).join('');
+  const main = `<div class="page-head"><p class="eyebrow">Modules</p><h1>${head}</h1><p>${lede}</p></div>${needs}
+<section class="card"><div class="card-head"><span>All modules</span><span class="v">${mods.length}</span></div>
+<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="Prefix or e-mail" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">
+<div class="seg" role="group" aria-label="Filter by state">${seg('all', 'All')}${seg('active', 'Active')}${seg('pending', 'Waiting')}${seg('blocked', 'Blocked')}${counts.unconfirmed ? seg('unconfirmed', 'Unconfirmed') : ''}</div></form>
+${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Prefix</th><th>Owner</th><th>Variant</th><th>State</th><th>Personalised</th><th>Keys</th><th>Last request</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<div class="card-body"><p class="soft">${mods.length ? 'Nothing matches.' : 'Nothing registered yet.'}</p></div>`}
+<div class="card-foot"><span>${shown.length} of ${mods.length}, newest request first</span></div></section>`;
+  return adminShell(cfg, 'modules', main, { count: mods.length, user: sess.u });
+}
+
+export function modulePage(cfg, sess, m, { dev, boot, log, keys, statusJson, count }) {
+  const csrf = auth.csrfToken(sess);
+  const p = m.prefix;
+  const st = m.state === 'active' ? (dev.inited ? 'is personalised and answering.' : 'is answering, still in its box.') : m.state === 'blocked' ? 'is blocked: every request gets 503.' : m.state === 'pending' ? 'waits for your approval.' : 'waits for its owner to confirm the e-mail.';
+  const reqs = (log ?? []);
+  const errs = reqs.filter((r) => r.s >= 400).length;
+  const block = m.state === 'blocked' ? ['unblock', 'Unblock', 'Requests are answered again. Keys and settings were kept.'] : ['block', 'Block', 'Every request answers 503 until it is unblocked. Keys and settings stay.'];
+  const main = `<a class="note" href="/">← All modules</a>
+<div class="page-head"><p class="eyebrow">Module · ${esc(p)}</p><h1>${esc(p)}.${esc(cfg.domain)} ${st}</h1></div>
+<section class="card"><div class="card-head"><span class="v">${esc(p)}</span>${pill(m.state)}</div>
+<dl class="status-grid">
+<div><dt>Address</dt><dd class="mono">${esc(moduleUrl(cfg, p))}</dd></div>
+<div><dt>Owner</dt><dd class="mono">${esc(m.email)}</dd></div>
+<div><dt>Variant</dt><dd class="mono">${esc(m.variant)} · ${esc(statusJson.fwv)}</dd></div>
+<div><dt>Personalised</dt><dd class="mono">${dev.inited ? `${date(dev.inited).slice(0, 10)} · user "${esc(dev.cfg?.user)}"` : 'Not yet'}</dd></div>
+<div><dt>Keys</dt><dd class="mono">${keys} of ${cfg.keysPerModule}</dd></div>
+<div><dt>Policy</dt><dd class="mono">${esc((dev.cfg?.policy ?? []).join(', ') || '—')}</dd></div>
+<div><dt>Session since</dt><dd class="mono">${date(Math.floor(boot.started / 1000))} (boot ${boot.n})</dd></div>
+<div><dt>Requests kept</dt><dd class="mono">${reqs.length} · ${errs} errors</dd></div>
+<div><dt>Registered</dt><dd class="mono">${date(m.created).slice(0, 10)}</dd></div>
+</dl><p class="status-note">The record holds no passwords: like a real module it keeps only the public keys the passwords derive, so an administrator cannot sign in as the owner.</p></section>
+<div class="grid-2">
+<section class="card"><div class="card-head"><span>Enter it</span></div>
+<div class="act"><div><h2>Open in the Manager</h2><p>The owner's password is still needed; the Manager asks for it as it would on a PPA.</p></div><a class="button" href="${esc(managerUrl(cfg, p))}">Open in the Manager</a></div>
+<div class="act"><div><h2>Raw status</h2><p>What GET /api/system/status and /version answer now.</p></div><a class="button plain" href="/m/${esc(p)}/status.json">Show JSON</a></div>
+${m.state === 'pending' ? `<div class="act"><div><h2>Approve</h2><p>The module starts answering at once.</p></div>${actForm(p, 'approve', 'Approve', csrf, '')}</div>` : ''}
+</section>
+<section class="card"><div class="card-head"><span>Change its state</span></div>
+<div class="act"><div><h2>Reboot</h2><p>New session key: every token issued so far stops working, as after a power cycle.</p></div>${actForm(p, 'reboot', 'Reboot', csrf)}</div>
+<div class="act"><div><h2>${block[1]}</h2><p>${block[2]}</p></div>${actForm(p, block[0], block[1], csrf)}</div>
+<div class="act"><div><h2>Reset to the box</h2><p class="risk">Keys, settings and logs are erased; the address stays and the module waits to be personalised again.</p></div>${actForm(p, 'reset', 'Reset', csrf, 'exposed')}</div>
+<div class="act"><div><h2>Delete</h2><p class="risk">The module and its address go. The prefix is free for anyone after that.</p></div>${actForm(p, 'delete', 'Delete', csrf, 'exposed')}</div>
+</section></div>
+<section class="card"><div class="card-head"><span>Last requests</span><span class="v">the last ${cfg.logKeep}, no bodies</span></div>
+${reqs.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Time</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th><th>Origin</th></tr></thead><tbody>
+${reqs.slice(0, 50).map((r) => `<tr><td class="mono">${new Date(r.t * 1000).toISOString().slice(11, 19)}</td><td class="mono">${esc(r.m)}</td><td class="mono">${esc(r.p)}</td><td class="mono${r.s >= 400 ? ' err' : ''}">${r.s}</td><td class="mono">${r.ms}</td><td class="mono">${esc(r.o || '—')}</td></tr>`).join('')}
+</tbody></table></div>` : '<div class="card-body"><p class="soft">No request yet.</p></div>'}
+<div class="card-foot"><span>${Math.min(50, reqs.length)} of ${reqs.length}</span><a href="/m/${esc(p)}/log.jsonl">Download as JSON lines</a></div></section>`;
+  return adminShell(cfg, 'modules', main, { count, user: sess.u });
+}
+
+export function settingsPage(cfg, sess, s, { count, saved = false, error = null, mailOk }) {
+  const csrf = auth.csrfToken(sess);
+  const head = { auto: 'Anyone can register a module, and it answers at once.', email: 'A module answers once its owner confirms the e-mail.', approve: 'A module answers once its e-mail is confirmed and you approve it.' }[s.mode];
+  const choice = (v, title, text) => `<label class="choice block"><input type="radio" name="mode" value="${v}"${s.mode === v ? ' checked' : ''}${v !== 'auto' && !mailOk ? ' disabled' : ''}><span><b>${title}</b><p class="soft">${text}</p></span></label>`;
+  const num = (name, label, hint = '') => `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" inputmode="numeric" value="${esc(s[name])}">${hint ? `<p class="hint">${hint}</p>` : ''}</div>`;
+  const main = `<div class="page-head"><p class="eyebrow">Settings</p><h1>${head}</h1><p>A change applies to registrations from now on; modules already waiting stay in the list until approved or rejected.</p></div>
+${saved ? '<p class="notice safe">The settings are saved.</p>' : ''}${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
+<form method="post" action="/settings" class="stack-l"><input type="hidden" name="csrf" value="${esc(csrf)}">
+<section class="card"><div class="card-head"><span>Registration</span><span class="v">${esc(MODE_LABEL[s.mode])}</span></div><div class="card-body">
+<fieldset class="pg-choices"><legend class="note">How a new module goes live</legend>
+${choice('auto', 'Automatic', 'Live as soon as the form is sent. No e-mail is needed.')}
+${choice('email', 'E-mail confirmation', `Live when the owner opens the link sent to them.${mailOk ? '' : ' Needs mail to be set up below.'}`)}
+${choice('approve', 'E-mail and approval', 'Live when the e-mail is confirmed and an administrator approves it under Needs you.')}
+</fieldset></div></section>
+<section class="card"><div class="card-head"><span>Limits</span></div><div class="card-body"><div class="form-grid">
+${num('modulesPerEmail', 'Modules per e-mail', '0 means no limit.')}${num('keysPerModule', 'Keys per module', 'What /api/keymgmt answers 409 above.')}${num('rpm', 'Requests per minute', 'Per module; over it, 429.')}
+${num('idleDays', 'Delete after idle days', '0 keeps modules for ever.')}${num('logKeep', 'Requests kept per module')}
+</div>
+<div class="field"><label for="reserved">Reserved prefixes</label><input id="reserved" name="reserved" class="mono" value="${esc(s.reserved)}"><p class="hint">Nobody can register these; * matches the rest of a prefix.</p></div>
+</div></section>
+<section class="card"><div class="card-head"><span>Mail</span><span class="v">${mailOk ? 'set up' : 'not set up'}</span></div><div class="card-body">
+<p class="hint">Mail settings live in the server's .env (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM), not here, so a password never sits in the database.${mailOk ? '' : ' Without them only automatic registration is offered.'}</p></div></section>
+<div class="row"><button class="button" type="submit">Save the settings</button><a class="button plain" href="/settings">Discard changes</a></div>
+</form>`;
+  return adminShell(cfg, 'settings', main, { count, user: sess.u });
+}
+
+export { signinPage };

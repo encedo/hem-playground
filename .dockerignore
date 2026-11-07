@@ -1,0 +1,10 @@
+.git
+**/.git
+.env
+node_modules
+sdk
+manager/dist
+manager/dev
+manager/design
+manager/docs
+manager/hem-logs

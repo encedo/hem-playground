@@ -1,0 +1,28 @@
+# Local playground: https://localhost (register), https://admin.localhost, https://manager.localhost,
+# https://<prefix>.localhost. Caddy's local CA signs the certificates; trust it once (README).
+services:
+  app:
+    build: .
+    image: hem-playground:latest
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      REDIS_URL: redis://redis:6379
+      DOMAIN: ${DOMAIN:-localhost}
+      SEED_HEM: ${SEED_HEM:-test}
+      OIDC_REDIRECT_URI: https://admin.${DOMAIN:-localhost}/auth/callback
+    depends_on: [redis]
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "100"]
+    volumes: [redis:/data]
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:80:80", "127.0.0.1:443:443"]
+    volumes: ["./deploy/Caddyfile.local:/etc/caddy/Caddyfile:ro", "caddy:/data"]
+    depends_on: [app]
+volumes:
+  redis:
+  caddy:

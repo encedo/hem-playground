@@ -1,0 +1,58 @@
+/* What the playground pages need beyond the Manager's style sheet. Tokens only. */
+.pg-wrap { width: 100%; max-width: 1120px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+.pg-top { border-bottom: 1px solid var(--rule); background: var(--surface); }
+.pg-top .masthead { padding-top: 16px; padding-bottom: 16px; align-items: center; }
+.pg-brand { display: flex; align-items: center; gap: 12px; color: var(--muted); text-decoration: none; }
+.pg-brand svg { width: 28px; height: 28px; flex: none; }
+.pg-brand b { color: var(--ink); }
+.pg-main { display: flex; flex-direction: column; gap: 36px; padding-top: 56px; padding-bottom: 72px; min-height: calc(100vh - 140px); }
+.pg-foot { border-top: 1px solid var(--rule); padding: 16px 24px; text-align: center; }
+.pg-lede { font-family: var(--serif); font-size: 19px; line-height: 1.5; color: var(--ink-soft); max-width: 60ch; }
+.pg-split { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+.pg-split > form { flex: 1 1 520px; }
+.pg-aside { flex: 1 1 380px; }
+.pg-narrow { max-width: 620px; }
+.hint { font-size: 13px; color: var(--muted); }
+.hint.ok { color: var(--sealed); }
+.hint.risk, .notice.risk { color: var(--exposed); }
+.notice { font-size: 14px; }
+
+/* prefix + fixed domain suffix: the input keeps a fixed width so the suffix always fits */
+.affix { display: inline-flex; align-items: stretch; width: fit-content; max-width: 100%; border: 1px solid var(--rule-firm); border-radius: 5px; overflow: hidden; background: var(--surface); }
+.field .affix input { border: 0; border-radius: 0; width: 180px; flex: 0 1 180px; font-family: var(--mono); font-size: 14px; }
+.affix span { display: flex; align-items: center; padding: 0 14px; background: var(--sunken); border-left: 1px solid var(--rule); font-family: var(--mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+/* radio list: compact, left-aligned, three columns */
+.pg-choices { border: 0; padding: 0; margin: 0; gap: 2px; }
+.pg-choices legend { padding: 0; margin-bottom: 6px; }
+.field > label.choice, .choice { display: grid; grid-template-columns: 16px 40px minmax(0, 1fr); column-gap: 10px; align-items: center; justify-items: start; text-align: left; min-height: 36px; font-family: var(--sans); font-size: 14px; letter-spacing: 0; text-transform: none; color: var(--ink-soft); cursor: pointer; }
+.choice input { margin: 0; width: 16px; height: 16px; accent-color: var(--sealed); }
+.choice .mono { font-size: 13px; color: var(--ink); }
+.choice.block { grid-template-columns: 16px minmax(0, 1fr); align-items: start; padding: 6px 0; }
+.choice.block input { margin-top: 3px; }
+.choice.block b { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); }
+.choice.block p { font-size: 13.5px; }
+
+.pg-or { display: flex; align-items: center; gap: 12px; }
+.pg-or span { flex: 1; height: 1px; background: var(--rule); }
+.pg-count { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.card.needs { border-color: var(--sealed-line); }
+.card.needs .card-head { background: var(--sealed-soft); color: var(--sealed); }
+.acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.acts form { display: contents; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--rule); }
+.toolbar input[type=search] { height: 44px; padding: 0 14px; border: 1px solid var(--rule-firm); border-radius: 5px; font: inherit; background: var(--surface); color: var(--ink); width: min(340px, 100%); }
+.seg { display: flex; border: 1px solid var(--rule-firm); border-radius: 5px; overflow: hidden; }
+.seg a { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-right: 1px solid var(--rule); background: var(--surface); font-family: var(--mono); font-size: 12px; color: var(--ink-soft); text-decoration: none; }
+.seg a:last-child { border-right: 0; }
+.seg a.on { background: var(--sealed-soft); color: var(--sealed); }
+.act { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 22px; border-top: 1px solid var(--rule); }
+.act:first-of-type { border-top: 0; }
+.act h2 { font-size: 15px; font-weight: 600; }
+.act p { font-size: 13.5px; color: var(--ink-soft); }
+.act p.risk { color: var(--exposed); }
+td.err { color: var(--exposed); }
+table.compact th, table.compact td { padding: 10px 16px; font-size: 13px; }
+table.compact td.mono { font-size: 12.5px; }
+pre.blob { margin: 0; white-space: pre; overflow-x: auto; }
+@media (max-width: 860px) { .act { grid-template-columns: 1fr; } .pg-main { padding-top: 32px; } }
