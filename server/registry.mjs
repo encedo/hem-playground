@@ -97,10 +97,15 @@ export class Registry {
     return out;
   }
 
-  /** byAdmin: a module the administrator makes for someone - reserved (not system) prefixes allowed, no limit, live at once. */
-  async register({ prefix, email, variant }, { byAdmin = false } = {}) {
+  /**
+   * byAdmin: a module the administrator makes for someone - reserved (not system) prefixes allowed, no limit, live at once.
+   * verified: the e-mail is already proven (an owner signed in), so there is no confirmation; approval still applies.
+   */
+  async register({ prefix, email, variant }, { byAdmin = false, verified = false } = {}) {
     const s = await this.settings();
     if (byAdmin) s.mode = 'auto';
+    const approve = verified && s.mode === 'approve';
+    if (verified) s.mode = 'auto';
     prefix = String(prefix ?? '').trim().toLowerCase();
     email = String(email ?? '').trim();
     variant = variant === 'EPA' ? 'EPA' : 'PPA';
@@ -112,7 +117,8 @@ export class Registry {
       if (mine >= s.modulesPerEmail) return { error: `${email} already has ${mine} modules, the most one address may have here.` };
     }
     const now = Math.floor(Date.now() / 1000);
-    const meta = { prefix, email, variant, created: now, lastReq: 0, state: s.mode === 'auto' ? 'active' : 'unconfirmed' };
+    const meta = { prefix, email, variant, created: now, lastReq: 0, state: approve ? 'pending' : s.mode === 'auto' ? 'active' : 'unconfirmed' };
+    if (verified) meta.confirmed = now;
     if (byAdmin) meta.byAdmin = true;
     if (s.mode !== 'auto') { meta.confirm = crypto.randomBytes(24).toString('base64url'); meta.confirmExp = now + 86400; }
     const { dev, boot } = createModule(variant, `${prefix}.${this.domain}`);

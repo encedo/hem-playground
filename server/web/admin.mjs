@@ -1,6 +1,6 @@
 // The panel, at admin.<domain> (administrators) and account.<domain> (owners): sign-in, modules, settings.
 
-import { esc, pill, ago, date, adminShell, signinPage, linkSentPage } from './ui.mjs';
+import { esc, pill, ago, date, adminShell, signinPage, linkSentPage, prefixScript } from './ui.mjs';
 import * as auth from './auth.mjs';
 import { MODE_LABEL } from '../registry.mjs';
 
@@ -23,7 +23,8 @@ export function modulesPage(cfg, sess, mods, query, create = {}) {
   const owner = sess.role !== 'admin';
   const head = owner ? (mods.length === 0 ? 'No module is registered with your address.' : mods.length === 1 ? 'One module is yours.' : `${word(mods.length, true)} modules are yours.`)
     : mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
-  const lede = owner ? (mods.length ? 'Open one to reboot it, put it back in its box or give its prefix up.' : `Register one at <a href="https://${esc(cfg.domain)}/">${esc(cfg.domain)}</a>.`)
+  const room = !(cfg.modulesPerEmail > 0 && mods.length >= cfg.modulesPerEmail);
+  const lede = owner ? (mods.length ? `Open one to reboot it, put it back in its box or give its prefix up.${room ? ' Add another under the list.' : ''}` : 'Add one under the list.')
     : mods.length === 0 ? `The first one appears here as soon as someone registers at ${esc(cfg.domain)}.`
     : `${word(counts.active, true)} ${plural(counts.active, 'answers', 'answer')} requests${counts.blocked ? `, ${word(counts.blocked)} ${plural(counts.blocked, 'is', 'are')} blocked` : ''}${counts.unconfirmed ? `, ${word(counts.unconfirmed)} ${plural(counts.unconfirmed, 'waits', 'wait')} for an e-mail to be confirmed` : ''}. Registration is ${esc(MODE_LABEL[cfg.mode])}.`;
   const seg = (key, label) => `<a href="/?state=${key}${q ? `&q=${encodeURIComponent(q)}` : ''}"${filter === key ? ' class="on"' : ''}>${label} ${counts[key]}</a>`;
@@ -32,19 +33,20 @@ export function modulesPage(cfg, sess, mods, query, create = {}) {
 ${waiting.map((m) => `<tr><td class="mono">${esc(m.prefix)}</td><td class="mono">${esc(m.email)}</td><td class="mono">${esc(m.variant)}</td><td class="mono">${date(m.confirmed)}</td>
 <td><div class="acts">${actForm(m.prefix, 'approve', 'Approve', csrf, '')}${actForm(m.prefix, 'reject', 'Reject', csrf)}</div></td></tr>`).join('')}
 </tbody></table></div></section>` : '';
-  const rows = shown.map((m) => `<tr><td class="mono"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td><td class="mono">${esc(m.email)}</td><td class="mono">${esc(m.variant)}</td>
+  // an owner's modules are all theirs: no Owner column for them
+  const rows = shown.map((m) => `<tr><td class="mono"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td>${owner ? '' : `<td class="mono">${esc(m.email)}</td>`}<td class="mono">${esc(m.variant)}</td>
 <td>${pill(m.state)}</td><td>${m.inited ? 'Yes' : 'Not yet'}</td><td class="mono">${m.keys}</td><td class="mono">${ago(m.lastReq)}</td>
 <td><div class="acts">${m.state === 'active' ? `<a class="button small plain" href="${esc(managerUrl(cfg, m.prefix))}">Open in the Manager</a>` : ''}</div></td></tr>`).join('');
-  const ownerCols = owner;
   const main = `<div class="page-head"><p class="eyebrow">Modules</p><h1>${head}</h1><p>${lede}</p></div>${needs}
 <section class="card"><div class="card-head"><span>All modules</span><span class="v">${mods.length}</span></div>
-<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="Prefix or e-mail" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">
+<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="${owner ? 'Prefix' : 'Prefix or e-mail'}" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">
 <div class="seg" role="group" aria-label="Filter by state">${seg('all', 'All')}${seg('active', 'Active')}${seg('pending', 'Waiting')}${seg('blocked', 'Blocked')}${counts.unconfirmed ? seg('unconfirmed', 'Unconfirmed') : ''}</div></form>
-${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Prefix</th><th>Owner</th><th>Variant</th><th>State</th><th>Personalised</th><th>Keys</th><th>Last request</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Prefix</th>${owner ? '' : '<th>Owner</th>'}<th>Variant</th><th>State</th><th>Personalised</th><th>Keys</th><th>Last request</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="card-body"><p class="soft">${mods.length ? 'Nothing matches.' : 'Nothing registered yet.'}</p></div>`}
+${owner ? addRow(cfg, sess, mods, create) : ''}
 <div class="card-foot"><span>${shown.length} of ${mods.length}, newest request first</span></div></section>
 ${owner ? '' : createCard(cfg, sess, create)}`;
-  return adminShell(cfg, 'modules', main, { count: mods.length, user: sess.u, role: sess.role });
+  return adminShell(cfg, 'modules', main, { count: mods.length, user: sess.u, role: sess.role, script: owner ? prefixScript('a-prefix', 'a-hint') : prefixScript('c-prefix', 'c-hint') });
 }
 
 export function modulePage(cfg, sess, m, { dev, boot, log, keys, statusJson, count }) {
@@ -158,6 +160,28 @@ ${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Pattern</th><th>
   return adminShell(cfg, 'reserved', main, { count, user: sess.u, role: sess.role });
 }
 
+/**
+ * An owner adds a module under the list: the e-mail is the one they signed in with,
+ * so there is nothing to confirm. Folded to a + until it is wanted.
+ */
+function addRow(cfg, sess, mods, { values = {}, error = null } = {}) {
+  const csrf = auth.csrfToken(sess);
+  const v = { prefix: '', variant: 'PPA', ...values };
+  const limit = cfg.modulesPerEmail;
+  const full = limit > 0 && mods.length >= limit;
+  if (full) return `<div class="pg-add"><p class="note">${word(limit, true)} ${plural(limit, 'module is', 'modules are')} the most one address may have here. Give one up to add another.</p></div>`;
+  return `<details class="pg-add"${error || !mods.length ? ' open' : ''}><summary><span class="pg-plus" aria-hidden="true">+</span>Add a module</summary>
+<form method="post" action="/add"><input type="hidden" name="csrf" value="${esc(csrf)}">
+${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
+<div class="pg-form-row">
+<div class="field"><label for="a-prefix">Prefix</label><div class="affix"><input id="a-prefix" name="prefix" value="${esc(v.prefix)}" required autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-describedby="a-hint"><span>.${esc(cfg.domain)}</span></div></div>
+<div class="field"><label for="a-variant">Variant</label><select id="a-variant" name="variant"><option${v.variant !== 'EPA' ? ' selected' : ''}>PPA</option><option${v.variant === 'EPA' ? ' selected' : ''}>EPA</option></select></div>
+<div class="field"><span class="name" aria-hidden="true">&nbsp;</span><button class="button" type="submit">Add</button></div>
+</div>
+<p id="a-hint" class="hint" aria-live="polite">3 to 32 characters: a–z, 0–9 and hyphens. Registered to ${esc(sess.u)}${cfg.mode === 'approve' ? '; the administrator approves it before it answers' : ''}.</p>
+</form></details>`;
+}
+
 export function createCard(cfg, sess, { values = {}, error = null } = {}) {
   const csrf = auth.csrfToken(sess);
   const v = { prefix: '', email: '', variant: 'PPA', ...values };
@@ -165,7 +189,7 @@ export function createCard(cfg, sess, { values = {}, error = null } = {}) {
 <form class="card-body" method="post" action="/create"><input type="hidden" name="csrf" value="${esc(csrf)}">
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <div class="pg-form-row">
-<div class="field"><label for="c-prefix">Prefix</label><div class="affix"><input id="c-prefix" name="prefix" value="${esc(v.prefix)}" required autocomplete="off" spellcheck="false"><span>.${esc(cfg.domain)}</span></div></div>
+<div class="field"><label for="c-prefix">Prefix</label><div class="affix"><input id="c-prefix" name="prefix" value="${esc(v.prefix)}" required autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-describedby="c-hint"><span>.${esc(cfg.domain)}</span></div><p id="c-hint" class="hint" aria-live="polite"></p></div>
 <div class="field pg-grow"><label for="c-email">Owner e-mail</label><input id="c-email" name="email" type="email" value="${esc(v.email)}" required></div>
 <div class="field"><label for="c-variant">Variant</label><select id="c-variant" name="variant"><option${v.variant !== 'EPA' ? ' selected' : ''}>PPA</option><option${v.variant === 'EPA' ? ' selected' : ''}>EPA</option></select></div>
 </div>

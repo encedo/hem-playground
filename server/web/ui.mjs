@@ -11,6 +11,13 @@ export function doc(title, body, { script = '' } = {}) {
 <body>${body}${script ? `<script>${script}</script>` : ''}</body></html>`;
 }
 
+/**
+ * The prefix field: lower case as it is typed (a phone capitalises the first letter),
+ * and whether the prefix is free, asked of /check a moment after the last key.
+ */
+export const prefixScript = (input, hint) => `(()=>{const i=document.getElementById('${input}'),h=document.getElementById('${hint}');if(!i)return;let t;
+i.addEventListener('input',()=>{const c=i.selectionStart,l=i.value.toLowerCase();if(l!==i.value){i.value=l;i.setSelectionRange(c,c)}clearTimeout(t);const p=l.trim();if(!p){h.textContent='';return}t=setTimeout(async()=>{try{const r=await fetch('/check?prefix='+encodeURIComponent(p));const j=await r.json();if(i.value.trim()!==p)return;h.textContent=j.message;h.className='hint '+(j.free?'ok':'risk')}catch{}},250)})})();`;
+
 export const pill = (state) => ({
   active: '<span class="pill sealed"><i></i>Active</span>',
   blocked: '<span class="pill exposed"><i></i>Blocked</span>',
@@ -47,7 +54,7 @@ export function registerPage(cfg, { values = {}, error = null } = {}) {
 <div class="card-body">
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <div class="field"><label for="prefix">Prefix</label>
-<div class="affix"><input id="prefix" name="prefix" value="${esc(v.prefix)}" required pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]" autocomplete="off" spellcheck="false" aria-describedby="prefix-hint"><span>.${esc(cfg.domain)}</span></div>
+<div class="affix"><input id="prefix" name="prefix" value="${esc(v.prefix)}" required autocapitalize="none" autocorrect="off" pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]" autocomplete="off" spellcheck="false" aria-describedby="prefix-hint"><span>.${esc(cfg.domain)}</span></div>
 <p id="prefix-hint" class="hint" aria-live="polite"></p>
 <p class="hint">3 to 32 characters: a–z, 0–9 and hyphens. It becomes the module's address and cannot be changed.</p></div>
 <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" value="${esc(v.email)}" required>
@@ -64,9 +71,7 @@ ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <div class="item"><dt>What it is not</dt><dd>It is not genuine: its device certificate comes from the playground's own test CA, not from Encedo's.</dd></div>
 <div class="item"><dt>How long it lives</dt><dd>Until it is deleted, or ${cfg.idleDays ? `${cfg.idleDays} days without a request` : 'for as long as the playground runs'}. The administrator can block or reset it at any time.</dd></div>
 </dl></div>`;
-  const script = `const i=document.getElementById('prefix'),h=document.getElementById('prefix-hint');let t;
-i.addEventListener('input',()=>{clearTimeout(t);const p=i.value.trim().toLowerCase();if(!p){h.textContent='';return}t=setTimeout(async()=>{try{const r=await fetch('/check?prefix='+encodeURIComponent(p));const j=await r.json();if(i.value.trim().toLowerCase()!==p)return;h.textContent=j.message;h.className='hint '+(j.free?'ok':'risk')}catch{}},250)});`;
-  return doc('HEM Playground', publicShell(cfg, main), { script });
+  return doc('HEM Playground', publicShell(cfg, main), { script: prefixScript('prefix', 'prefix-hint') });
 }
 
 export function registeredPage(cfg, m) {
@@ -101,13 +106,13 @@ export function messagePage(cfg, eyebrow, heading, text, extra = '') {
 }
 
 // ---- admin ------------------------------------------------------------------------------------
-export function adminShell(cfg, active, main, { count = 0, user = '', role = 'admin' } = {}) {
+export function adminShell(cfg, active, main, { count = 0, user = '', role = 'admin', script = '' } = {}) {
   const nav = (href, label, key, c = '') => `<a href="${href}"${active === key ? ' class="active" aria-current="page"' : ''}>${label}${c !== '' ? ` <span class="pg-count">${c}</span>` : ''}</a>`;
   return doc(role === 'admin' ? 'Playground admin' : 'My modules', `<div class="app">
 <aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>${role === 'admin' ? 'Playground admin' : 'HEM Playground'}</b></div></div>
-<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count) + `<a href="https://${esc(cfg.domain)}/">Register another</a>`}</nav>
+<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count)}</nav>
 <div class="sidebar-foot"><span>Signed in as <span class="host">${esc(user)}</span></span>${role === 'admin' ? `<span>Registration: <span class="host">${esc(cfg.modeLabel)}</span></span>` : ''}<a href="/logout">Sign out</a></div></aside>
-<main class="main">${main}</main></div>`);
+<main class="main">${main}</main></div>`, { script });
 }
 
 export function signinPage(cfg, { error = null, oidc = true, email = '' } = {}) {

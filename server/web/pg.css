@@ -83,3 +83,12 @@ td.risk { color: var(--exposed); }
   .toolbar > * { flex: 1 1 100%; }
   .seg a { flex: 1 1 auto; justify-content: center; }
 }
+
+/* an owner adds a module under the list */
+.pg-add { border-top: 1px solid var(--rule); padding: 12px 18px; }
+.pg-add summary { cursor: pointer; display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); list-style: none; }
+.pg-add summary::-webkit-details-marker { display: none; }
+.pg-plus { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--rule-firm); border-radius: 5px; font-family: var(--mono); font-size: 16px; line-height: 1; }
+.pg-add[open] .pg-plus { background: var(--sunken); }
+.pg-add form { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.pg-add .field .name { font-family: var(--mono); font-size: 10.5px; }

@@ -182,6 +182,18 @@ async function panelSite(req, res, url, site) {
   // an owner sees and acts on the modules registered with their e-mail, nothing else
   const mods = isAdmin ? all : all.filter((x) => x.email.toLowerCase() === sess.u.toLowerCase());
   const adminOnly = ['/settings', '/reserved', '/reserved/remove', '/create'];
+  if (p === '/check' && req.method === 'GET') {
+    const pre = (url.searchParams.get('prefix') ?? '').trim().toLowerCase();
+    const why = await registry.whyNot(pre, cfg, { byAdmin: isAdmin });
+    return json(res, 200, { free: !why, message: why ?? `${pre}.${DOMAIN} is free.` });
+  }
+  if (p === '/add' && req.method === 'POST' && !isAdmin) {
+    // an owner adds a module for their own, already proven, address
+    const values = { prefix: f.get('prefix') ?? '', variant: f.get('variant') ?? 'PPA' };
+    const r = await registry.register({ ...values, email: sess.u }, { verified: true });
+    if (r.error) return html(res, 400, admin.modulesPage(cfg, sess, mods, url.searchParams, { values, error: r.error }));
+    return redirect(res, `/m/${r.meta.prefix}`);
+  }
   if (!isAdmin && adminOnly.includes(p)) return redirect(res, '/');
   if (p === '/' && req.method === 'GET') return html(res, 200, admin.modulesPage(cfg, sess, mods, url.searchParams));
   if (p === '/settings') {
