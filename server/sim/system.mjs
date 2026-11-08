@@ -5,6 +5,7 @@ import { hkdf, b64, unb64, unb64urlNoPad, jwtParse, jwtVerify, jwtSign, x25519, 
 import { fail, hasScope, scopes } from './http.mjs';
 import { FW_VERSION, BL_VERSION, PUBLISHER, APP_PUBKEY, TRUSTED_BACKENDS, issueNonce, nonceValid, uptime, LOG, newBoot } from './device.mjs';
 import { genuineToken, attestationJwt, slotKey, skid } from './attest.mjs';
+import { sharedAttCert } from './attkey.mjs';
 import * as K from './keys.mjs';
 import * as H from './hpke.mjs';
 import { hpkeDecap } from './crypto.mjs';
@@ -178,7 +179,9 @@ export async function getAttestation(ctx, rest) {
   }
   if (ctx.inited && !ctx.token) fail(401);
   if (ctx.boot.installing || ctx.fls) fail(409);
-  const crt = ctx.deviceCert ? await ctx.deviceCert() : null;
+  // the certificate of the shared device key, on PPA and - as an exception to the firmware, where an EPA
+  // returns the CSR of its attestation key - on EPA too
+  const crt = sharedAttCert();
   const j = {};
   if (crt) j.crt = crt;
   j.genuine = genuineToken(ctx.dev, nonce);

@@ -12,9 +12,11 @@ reboots or deletes them.
 
 **Nothing in a virtual module is secret.** Its keys, private halves and
 secrets included, are stored **unencrypted** in Redis on a shared server, and
-anyone with access to that server or to a copy of its data can read them. It is
-not genuine either: its device certificate comes from the playground, not from
-Encedo. Use test keys and test data only. How it is built, and its limits:
+anyone with access to that server or to a copy of its data can read them. Its
+attestation is signed with one key shared by the whole playground, which lies
+in the server's `.env`. The key's certificate comes from the Encedo EPA Custody
+CA for `*.playground.ence.do`, so it proves "a playground module", not a device.
+Use test keys and test data only. How it is built, and its limits:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Sites
@@ -102,7 +104,7 @@ State of the suites (local `test.localhost` and production `test.playground.ence
 | T-5, T-6 | PASS with `EXTAUTH=1` (`ExtAuth_Simulator.php` as the phone, through the real api.encedo.com) |
 | T-7 | 7.2 (firmware upload) and 7.3 (Manager upload) PASS with `TESTER_INPUT='2\n'` / `'3\n'`; 7.1 flashes over USB, not for a virtual module |
 | T-8 | PASS (8.1; 8.2–8.5 need a DIAG build) |
-| T-13 | 13.1–13.5 pass; 13.6 needs a device certificate chained to the Encedo Root CA — a virtual module is not genuine |
+| T-13 | 13.1–13.5 pass; 13.6 does not. On a PPA it expects a chain through the PPA Custody CA; the playground's certificate is from the EPA Custody CA. On an EPA it expects a CSR and no certificate |
 | T-15 | PASS locally; on production 15.13 gets nginx's own 400 for Transfer-Encoding + Content-Length (the firmware says 501) |
 | T-2, T-16 | not on the playground: they register `my.ence.do` at api.encedo.com with the genuine token (T-16 runs T-2 per policy); `test/personalise.mjs` personalises the same way without that step |
 
@@ -126,6 +128,9 @@ certificate, issued and renewed through a CNAME to acme-dns on the same host
 - Check-in runs against the real `api.encedo.com`; remote actions (lock, wipe,
   brick) are reported but never carried out.
 - No TLS key import, CSR or provisioning: the playground ends TLS itself.
+- Attestation is signed with one key for the whole playground (`PG_ATT_KEY`), and
+  every module, EPA included, returns its certificate as `crt`. A real EPA
+  returns the CSR of its own attestation key instead.
 - Firmware and Manager uploads are accepted and "verified", nothing is installed.
 - There is no disk: `storage/unlock` / `lock` change the state `status` reports
   (`:ro`, `:rw`, `:-`) and write the audit entries, nothing is exposed anywhere.

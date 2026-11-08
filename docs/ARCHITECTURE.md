@@ -8,6 +8,12 @@
 > every key of every module. There is no secure element, no encryption at rest
 > and no key wrapping. Treat every key made here as public. Never import a real
 > key, and never put real data or a real password near it.
+>
+> The same goes for the playground's **attestation key**, which signs every
+> module's attestation. It lies in plain text in the server's `.env`, and its
+> certificate chains to the Encedo Root CA. Anyone with access to the server
+> can sign an attestation that passes that chain, for the `*.playground.ence.do`
+> profile.
 
 ## What it is for
 
@@ -109,6 +115,28 @@ premium names, and the playground's own names).
 Redis writes its data to a Docker volume on the server: an append-only file
 and a snapshot every minute when enough changed. There is no other copy.
 
+### Attestation
+
+Every module, PPA and EPA, signs its attestation (`genuine` and the attestation
+JWT) with **one key shared by the whole playground**, in the role of a secure
+element's device key.
+
+- **The key** is `PG_ATT_KEY` in the server's `.env`. It never goes into Redis.
+- **Its certificate** (`PG_ATT_CERT`) is issued by the **Encedo EPA Custody
+  CA**, in the profile of a device certificate: subject `C=UK, O=Encedo Ltd,
+  CN=#<serial>`, and in the SAN the otherName with the key's SKID and the
+  dNSName `*.playground.ence.do`.
+- **What attest says.** attest.encedo.com knows the certificate, so it
+  recognises the playground's profile, but not which module signed: they all
+  share one SKID.
+- **The certificate is returned as `crt` by every module.** On EPA this is an
+  exception to the firmware, where the module returns the CSR of its
+  attestation key and the certificate stays with the operator.
+- **Making it.** `server/tools/make-att-csr.mjs <domain>`, run where the
+  `.env` lives, prints the key line for the `.env` and the CSR for the CA.
+- **Without the two values** (locally, for instance), each module signs with a
+  key of its own and answers without a certificate.
+
 ### Signing in
 
 There are no passwords to the panel.
@@ -141,10 +169,12 @@ module keeps only the public keys the passwords derive.
 
 **It is not a HEM.**
 
-- Its device certificate is not from Encedo: nothing here passes as genuine
-  hardware, and attestation against Encedo's root fails by design.
-- hem-api-tester T-2, T-13.6 and T-16 cannot pass for that reason (a genuine
-  device certificate, a domain registered at api.encedo.com). This is agreed,
+- Its attestation proves "a playground module", not a device. The certificate
+  chains to the Encedo Root CA through the EPA Custody CA, but every module
+  shares it, and its key is not in a secure element.
+- hem-api-tester T-2, T-13.6 and T-16 cannot pass. T-2 and T-16 need a domain
+  registered at api.encedo.com. T-13.6 expects, on a PPA, a chain through the
+  PPA Custody CA, and on an EPA a CSR instead of a certificate. This is agreed,
   not a bug.
 - A playground module gets no name under ence.do. Nothing is registered with
   api.encedo.com for it.

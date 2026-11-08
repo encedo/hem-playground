@@ -66,8 +66,9 @@ test/run-tester.sh test_1.php test_3.php test_4.php test_9.php test_10.php \
   test_11.php test_12.php test_13.php test_14.php test_15.php                   # all PASS but T-13.6
 ```
 
-T-2, T-13.6 and T-16 cannot pass on a virtual module (genuine device certificate,
-domain registration at api.encedo.com) — that is agreed, not a bug to chase.
+T-2, T-13.6 and T-16 cannot pass on a virtual module (T-2 / T-16: domain registration at
+api.encedo.com; T-13.6: the certificate is from the EPA Custody CA, and an EPA returns it
+instead of a CSR) — that is agreed, not a bug to chase.
 The default rate limit (3000 requests a minute) is there because the tester is fast.
 
 ## Facts that bite
@@ -86,5 +87,9 @@ The default rate limit (3000 requests a minute) is there because the tester is f
 - The audit log is format v2 (DEV-500): per-file Ed25519 key certified by the
   device log key, every line signed. A new module starts with a factory-session
   file, because tests expect at least one downloadable file.
+- Attestation is signed with `PG_ATT_KEY` from the `.env` (`sim/attkey.mjs`), the same key
+  for every module, and every module returns `PG_ATT_CERT` as `crt`, EPA included (an
+  agreed exception). The key never goes into Redis. Without it each module uses its own
+  `slot0` and has no certificate.
 - KIDs: asymmetric = SHA-1 of the raw public key; symmetric = SHA-1 of the secret;
   GENERIC_DER = SHA-1 of the 2-byte LE length and the DER (all first 16 bytes).
