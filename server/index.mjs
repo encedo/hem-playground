@@ -61,7 +61,7 @@ async function assets(res, rel) {
 
 async function viewCfg() {
   const s = await registry.settings();
-  return { domain: DOMAIN, ...s, modeLabel: MODE_LABEL[s.mode], oidcHost: auth.oidcHost(), mailOk: mailer.configured };
+  return { domain: DOMAIN, ...s, modeLabel: MODE_LABEL[s.mode], mailOk: mailer.configured };
 }
 
 // ---- request log and rate limit, per module -------------------------------------------------------

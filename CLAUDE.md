@@ -1,7 +1,8 @@
 # Working in this repository
 
 The [README](README.md) says what the playground is and how to run, test and
-deploy it — read it first and do not repeat it here. This file is what an agent
+deploy it; [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) says how it is built
+and where its limits are. Read both first and do not repeat them here. This file is what an agent
 has to be told: what must not change, what to check before calling something
 done, and the facts that have already cost time.
 
@@ -39,20 +40,19 @@ done, and the facts that have already cost time.
   English, in the voice of `manager/design/STYLE.md`; the pages use the
   Manager's own style sheet (`manager/app/style.css`) plus `server/web/pg.css`.
 
-## How it is put together
+## What a change has to keep
 
-- `server/index.mjs` routes by host: `<domain>` public site (`www.` redirects), `admin.<domain>`
-  and `account.<domain>` the panel, `manager.<domain>` the Manager (static), `<prefix>.<domain>` a module.
 - `server/sim/index.mjs` runs one request to one module **under that module's
-  lock**: load → firmware pre-checks (`http.mjs`, in the firmware's order) →
-  handler → save what the handler marked dirty → reply. A handler returns
-  `{ status, json | text, close, delay }` or throws `fail(code)`; it never
-  writes to the socket.
-- A handler that takes time on hardware (`selftest`) returns `delay`: the reply
-  waits *after* the lock is released, so a concurrent request sees the module busy.
-- Crypto: node:crypto first; `ec.mjs` (BigInt) for prehashed / RFC 6979 ECDSA;
-  `mldsa-ext.mjs` calls the OpenSSL 3.5 CLI for HashML-DSA, external μ and
-  Ed25519ph / Ed448ph; `hpke.mjs` is RFC 9180 by hand.
+  lock**. A handler returns `{ status, json | text, close, delay }` or throws
+  `fail(code)`; it never writes to the socket, and it marks what it changed so
+  only that is saved.
+- Pre-checks stay in the firmware's order (`http.mjs`): a test that sends two
+  faults at once expects the status of the first one the firmware checks.
+- A handler that takes time on hardware returns `delay`; the reply waits
+  *after* the lock is released, so a concurrent request sees the module busy.
+- Crypto: node:crypto first; `ec.mjs` only for prehashed / RFC 6979 ECDSA,
+  `mldsa-ext.mjs` (OpenSSL CLI) only for what node:crypto cannot do,
+  `hpke.mjs` for HPKE.
 
 ## Before saying it works
 

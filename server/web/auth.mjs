@@ -65,7 +65,6 @@ const OIDC = {
   redirect: process.env.OIDC_REDIRECT_URI,
 };
 export const oidcEnabled = () => !!(OIDC.issuer && OIDC.clientId && OIDC.secret && OIDC.redirect);
-export const oidcHost = () => (OIDC.issuer ? new URL(OIDC.issuer).host : '');
 const admins = new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
 let discovery = null;
 async function disco() {

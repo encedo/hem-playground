@@ -10,24 +10,22 @@ status codes and real cryptography — so the
 unchanged. An admin panel lists the modules and approves, blocks, resets,
 reboots or deletes them.
 
-A virtual module is **not** a secure element: its keys sit in Redis on a shared
-server, and it is not genuine (its device certificate comes from the
-playground, not from Encedo). Never put a real key or secret in it.
+**Nothing in a virtual module is secret.** Its keys, private halves and
+secrets included, are stored **unencrypted** in Redis on a shared server, and
+anyone with access to that server or to a copy of its data can read them. It is
+not genuine either: its device certificate comes from the playground, not from
+Encedo. Use test keys and test data only. How it is built, and its limits:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Sites
 
-One Node process, routed by the `Host` header (on HTTPS: the TLS server name).
-DNS has `playground.ence.do` and the wildcard `*.playground.ence.do` pointing to the
-server and TLS one certificate for both, so a new module needs no DNS, certificate
-or proxy change.
+- `playground.ence.do`: register a module (`www.` redirects here)
+- `admin.playground.ence.do`: administrators (`ADMIN_EMAILS`)
+- `account.playground.ence.do`: an owner's own modules
+- `manager.playground.ence.do`: the Manager, opened with `?hem=https://<prefix>.playground.ence.do`
+- `<prefix>.playground.ence.do`: one virtual module
 
-| Host | What |
-|---|---|
-| `playground.ence.do` | Register a module: prefix, e-mail, variant (PPA / EPA); `www.` redirects here |
-| `admin.playground.ence.do` | Administration: every module, reserved prefixes, settings. Only the addresses in `ADMIN_EMAILS` sign in here |
-| `account.playground.ence.do` | The same panel for an owner: the modules registered with their e-mail (reboot, reset, give the prefix up) |
-| `manager.playground.ence.do` | The Manager (the `manager/` submodule), opened with `?hem=https://<prefix>.playground.ence.do` |
-| `<prefix>.playground.ence.do` | One virtual module |
+What each one does and how a request reaches a module: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#how-it-is-built).
 
 Locally the domain is `localhost`: `https://localhost`, `https://admin.localhost`, `https://account.localhost`,
 `https://manager.localhost`, `https://<prefix>.localhost`.
@@ -51,14 +49,12 @@ server/
   web/               public site and admin panel (the Manager's style sheet + pg.css)
 sdk/                 hem-sdk-js (submodule) — tests and tools
 manager/             encedo-manager (submodule) — served on manager.<domain>
+docs/                ARCHITECTURE.md: purpose, how it is built, limits
 deploy/              Caddyfile for local runs
 test/                personalise a module, run the suites
 ```
 
-Reserved prefixes are the hash `@reserved` (pattern → kind brand / offensive / premium / other, note); the playground's own names are fixed in `registry.mjs`. Redis holds **one hash per module, named by its prefix**; its fields are
-`meta`, `dev`, `boot`, `k:<kid>` (one per key), `log` (the last requests) and
-`audit:<id>` (one audit-log file per boot). Global settings are the hash
-`@settings`.
+What Redis holds, field by field: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#where-things-are-kept).
 
 ## Run it locally
 

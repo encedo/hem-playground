@@ -126,7 +126,7 @@ ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <button class="button" type="submit">Send me a sign-in link</button>
 <p class="note">${adm ? 'For administrators only; the owner of a module signs in at' : 'The address you registered a module with. The link works once, within 15 minutes; there is no password. Administrators sign in at'} <a href="https://${adm ? 'account' : 'admin'}.${esc(cfg.domain)}/login">${adm ? 'account' : 'admin'}.${esc(cfg.domain)}</a>.</p>
 ${oidc ? `<div class="pg-or note"><span></span>or<span></span></div>
-<a class="button plain" href="/auth/oidc">Sign in with Encedo</a><p class="note">With your own HEM at ${esc(cfg.oidcHost)}.</p>` : ''}
+<a class="button plain" href="/auth/oidc">Sign in with Encedo</a>` : ''}
 </div></form></div></div>`);
 }
 
