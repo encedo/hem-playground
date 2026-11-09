@@ -20,9 +20,9 @@ done, and the facts that have already cost time.
   its branch). Make the simulator pass them; do not bend a test.
 - **One Redis hash per module, named by its prefix.** Everything a module has is
   a field of that hash (`meta`, `dev`, `boot`, `k:<kid>`, `log`, `audit:<id>`).
-  Do not spread a module over several keys. Global state is `@settings` and
-  `@reserved` (reserved prefix patterns).
-- **No passwords.** Sign-in is a one-time link by e-mail or Encedo OIDC. An address
+  Do not spread a module over several keys. Global state is `@settings`,
+  `@passkeys` (panel passkeys) and `@reserved` (reserved prefix patterns).
+- **No passwords.** Sign-in is a one-time link by e-mail, Encedo OIDC or a passkey. An address
   has one role: in `ADMIN_EMAILS` or the panel's list (`@settings.admins`) it is an administrator and signs in at `admin.`,
   otherwise it is an owner and signs in at `account.`, seeing only modules whose
   `meta.email` is theirs. The link always goes to the address's own site; OIDC has

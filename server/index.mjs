@@ -19,6 +19,7 @@ import { versionJson } from './sim/system.mjs';
 import * as ui from './web/ui.mjs';
 import * as admin from './web/admin.mjs';
 import * as auth from './web/auth.mjs';
+import { Passkeys, CLIENT as PASSKEY_JS } from './web/passkey.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOMAIN = (process.env.DOMAIN || 'localhost').toLowerCase();
@@ -27,6 +28,7 @@ const MANAGER_DIR = path.resolve(process.env.MANAGER_DIR || path.join(HERE, '..'
 const store = new Store(process.env.REDIS_URL || 'redis://127.0.0.1:6379');
 const mailer = new Mailer();
 const registry = new Registry(store, DOMAIN, mailer, (s) => auth.adminEmails(s.admins));
+const passkeys = new Passkeys(store, DOMAIN, [`https://admin.${DOMAIN}`, `https://account.${DOMAIN}`]);
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
@@ -35,6 +37,13 @@ const html = (res, status, body, headers = {}) => { res.writeHead(status, { 'Con
 const json = (res, status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj, null, 2)); };
 const redirect = (res, to, headers = {}) => { res.writeHead(303, { Location: to, 'Cache-Control': 'no-store', ...headers }); res.end(); };
 const clientIp = (req) => (req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket.remoteAddress;
+
+const jsonOut = (res, status, obj, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(obj)); };
+async function readJson(req) {
+  const chunks = []; let n = 0;
+  for await (const c of req) { n += c.length; if (n > 65536) return null; chunks.push(c); }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { return null; }
+}
 
 async function form(req) {
   const chunks = []; let n = 0;
@@ -178,14 +187,26 @@ async function panelSite(req, res, url, site) {
     if (r.role !== 'admin') return redirect(res, siteUrl('account', `/login/link?t=${encodeURIComponent(auth.linkToken(r.email, 'oidc'))}`), { 'Set-Cookie': auth.clearOidc() });
     return redirect(res, '/', { 'Set-Cookie': [auth.sessionCookie(r.email, 'oidc', r.role), auth.clearOidc()] });
   }
+  if (p === '/passkey/options' && req.method === 'POST') return jsonOut(res, 200, passkeys.loginOptions(siteUrl(site)));
+  if (p === '/passkey/login' && req.method === 'POST') {
+    // the role comes from the address, as for a link; signed in on the wrong site, it is handed on
+    const email = await passkeys.login((await readJson(req)) ?? {}).catch((e) => ({ error: e.message }));
+    if (email.error) return jsonOut(res, 400, email);
+    const role = auth.roleOf(email);
+    if (siteOf(role) !== site) return jsonOut(res, 200, { to: siteUrl(siteOf(role), `/login/link?t=${encodeURIComponent(auth.linkToken(email, 'passkey'))}`) });
+    return jsonOut(res, 200, { to: '/' }, { 'Set-Cookie': auth.sessionCookie(email, 'passkey', role) });
+  }
   if (p === '/logout') return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });
 
   const sess = auth.session(req);
   if (!sess) return redirect(res, '/login');
   if (siteOf(sess.role) !== site) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });   // a cookie from before the split
   if (auth.roleOf(sess.u) !== sess.role) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() }); // the address changed role: sign in again at its site
-  let f = null;
-  if (req.method === 'POST') {
+  let f = null, body = null;
+  if (req.method === 'POST' && (req.headers['content-type'] ?? '').startsWith('application/json')) {
+    body = await readJson(req);
+    if (!body || req.headers['x-csrf'] !== auth.csrfToken(sess)) return jsonOut(res, 403, { error: 'The page is stale. Reload it and try again.' });
+  } else if (req.method === 'POST') {
     f = await form(req);
     if (f.get('csrf') !== auth.csrfToken(sess)) { res.writeHead(403, { 'Content-Type': 'text/plain' }); return res.end('The form is stale. Reload the page and try again.'); }
   }
@@ -194,6 +215,20 @@ async function panelSite(req, res, url, site) {
   // an owner sees and acts on the modules registered with their e-mail, nothing else
   const mods = isAdmin ? all : all.filter((x) => x.email.toLowerCase() === sess.u.toLowerCase());
   const adminOnly = ['/settings', '/admins', '/admins/remove', '/reserved', '/reserved/remove', '/create'];
+  // passkeys: every signed-in address manages its own
+  if (p === '/passkeys' && req.method === 'GET') return html(res, 200, admin.passkeysPage(cfg, sess, await passkeys.list(sess.u), { count: mods.length, script: PASSKEY_JS }));
+  if (p === '/passkey/new' && body) return jsonOut(res, 200, await passkeys.registerOptions(sess.u, siteUrl(site)));
+  if (p === '/passkey/add' && body) {
+    const r = await passkeys.register(sess.u, body, body.name).catch((e) => ({ error: e.message }));
+    if (r.error) return jsonOut(res, 400, r);
+    await mailer.send(sess.u, 'A passkey was added to your HEM Playground sign-in', `A passkey (${r.name}) can now sign in as ${sess.u} at ${siteUrl(siteOf(sess.role))}.\n\nIf it was not you, sign in with a link and remove it under Passkeys.`).catch((e) => console.error('mail', e.message));
+    return jsonOut(res, 200, { ok: true });
+  }
+  if (p === '/passkey/remove' && f) {
+    const r = await passkeys.remove(sess.u, f.get('id') ?? '');
+    if (r) await mailer.send(sess.u, 'A passkey was removed from your HEM Playground sign-in', `The passkey ${r.name} no longer signs in as ${sess.u}.`).catch((e) => console.error('mail', e.message));
+    return redirect(res, '/passkeys');
+  }
   if (p === '/check' && req.method === 'GET') {
     const pre = (url.searchParams.get('prefix') ?? '').trim().toLowerCase();
     const why = await registry.whyNot(pre, cfg, { byAdmin: isAdmin });

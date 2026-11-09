@@ -108,7 +108,7 @@ a field of that hash:
 | `log` | The last requests, for the panel |
 | `audit:<id>` | Audit log files |
 
-Two hashes are global: `@settings` (registration mode, limits, options, administrators added in the panel) and `@reserved`
+Three hashes are global: `@settings` (registration mode, limits, options, administrators added in the panel), `@passkeys` (the panel's passkeys: public keys only, by credential id) and `@reserved`
 (prefix patterns that cannot be registered: brand names, offensive words,
 premium names, and the playground's own names).
 
@@ -144,6 +144,11 @@ There are no passwords to the panel.
 - **Sign-in link.** Someone types an e-mail address and gets a one-time link,
   valid for 15 minutes.
 - **Encedo OIDC.** Someone signs in with their own HEM at test.oidc.encedo.com.
+- **Passkey.** Once signed in, anyone can add a passkey under Passkeys (Touch ID,
+  Windows Hello, a phone) and sign in with it afterwards. The relying party is
+  `playground.ence.do`, so one passkey serves `admin.` and `account.`; the role
+  comes from its address, as for a link. Adding or removing one is mailed to the
+  address. `server/web/passkey.mjs` verifies with node:crypto, attestation none.
 - **One address, one role.** An address in `ADMIN_EMAILS`, or added under
   Settings, Administrators, is an administrator and signs in at `admin.`. Anyone else is an owner and signs in at `account.`,
   where they see only the modules registered with their address. The role

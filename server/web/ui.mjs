@@ -1,6 +1,8 @@
 // HTML for the public site and the admin panel. The Manager's own style sheet
 // (manager/app/style.css) carries the look; pg.css adds the few pieces it lacks.
 
+import { CLIENT as PASSKEY_JS } from './passkey.mjs';
+
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const MARK = `<svg viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="6" fill="#0F5F4B"/><rect x="7" y="6" width="14" height="16" rx="2" fill="none" stroke="#F2F8F5" stroke-width="1.6"/><circle cx="14" cy="12.5" r="2.4" fill="none" stroke="#F2F8F5" stroke-width="1.6"/><path d="M14 15v4" stroke="#F2F8F5" stroke-width="1.6" stroke-linecap="round"/></svg>`;
@@ -110,10 +112,13 @@ export function adminShell(cfg, active, main, { count = 0, user = '', role = 'ad
   const nav = (href, label, key, c = '') => `<a href="${href}"${active === key ? ' class="active" aria-current="page"' : ''}>${label}${c !== '' ? ` <span class="pg-count">${c}</span>` : ''}</a>`;
   return doc(role === 'admin' ? 'Playground admin' : 'My modules', `<div class="app">
 <aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>${role === 'admin' ? 'Playground admin' : 'HEM Playground'}</b></div></div>
-<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count)}</nav>
+<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count)}${nav('/passkeys', 'Passkeys', 'passkeys')}</nav>
 <div class="sidebar-foot"><span>Signed in as <span class="host">${esc(user)}</span></span>${role === 'admin' ? `<span>Registration: <span class="host">${esc(cfg.modeLabel)}</span></span>` : ''}<a href="/logout">Sign out</a></div></aside>
 <main class="main">${main}</main></div>`, { script });
 }
+
+const passkeyLogin = `${PASSKEY_JS}
+if (window.PublicKeyCredential) { document.getElementById('pk-go').hidden = false; document.getElementById('pk-go').onclick = () => pkLogin(document.getElementById('pk-note')); }`;
 
 export function signinPage(cfg, { error = null, oidc = true, email = '' } = {}) {
   const adm = cfg.site === 'admin';
@@ -127,7 +132,8 @@ ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <p class="note">${adm ? 'For administrators only; the owner of a module signs in at' : 'The address you registered a module with. The link works once, within 15 minutes; there is no password. Administrators sign in at'} <a href="https://${adm ? 'account' : 'admin'}.${esc(cfg.domain)}/login">${adm ? 'account' : 'admin'}.${esc(cfg.domain)}</a>.</p>
 ${oidc ? `<div class="pg-or note"><span></span>or<span></span></div>
 <a class="button plain" href="/auth/oidc">Sign in with Encedo</a>` : ''}
-</div></form></div></div>`);
+<button class="button plain" type="button" id="pk-go" hidden>Sign in with a passkey</button><p class="notice risk" id="pk-note" hidden></p>
+</div></form></div></div>`, { script: passkeyLogin });
 }
 
 export function linkSentPage(cfg, email) {

@@ -218,3 +218,21 @@ ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <div class="row"><button class="button" type="submit">Create the module</button><span class="note">Live at once, outside the per-address limit. Brand and premium prefixes can be given out here; the playground's own names can not.</span></div>
 </form></section>`;
 }
+
+/** Passkeys: the signed-in address's own, added on this device and removed one by one. */
+export function passkeysPage(cfg, sess, keys, { count, script }) {
+  const csrf = auth.csrfToken(sess);
+  const rows = keys.map((k) => `<tr><td>${esc(k.name)}</td><td class="soft">${date(k.created)}</td><td class="soft">${k.used ? ago(k.used) : 'never'}</td>
+<td><div class="acts"><form method="post" action="/passkey/remove"><input type="hidden" name="csrf" value="${esc(csrf)}"><input type="hidden" name="id" value="${esc(k.id)}"><button class="button small plain" type="submit">Remove</button></form></div></td></tr>`).join('');
+  const main = `<div class="page-head"><p class="eyebrow">Passkeys</p><h1>Sign in with Touch ID, Windows Hello or your phone.</h1>
+<p>A passkey signs in as ${esc(sess.u)} without a link. It stays on the device or in its keychain; the playground keeps only its public key. A sign-in link by e-mail still works.</p></div>
+<section class="card"><div class="card-head"><span>Your passkeys</span><span class="v">${keys.length}</span></div>
+${keys.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Device</th><th>Added</th><th>Last used</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="card-body"><p class="soft">None yet.</p></div>'}
+<div class="card-body stack-s"><div><button class="button" type="button" id="pk-add">Add a passkey on this device</button></div>
+<p class="notice risk" id="pk-note" hidden></p>
+<p class="hint">Each change is mailed to ${esc(sess.u)}.</p></div></section>`;
+  return adminShell(cfg, 'passkeys', main, { count, user: sess.u, role: sess.role, script: `${script}
+const b = document.getElementById('pk-add'), n = document.getElementById('pk-note');
+if (!window.PublicKeyCredential) { b.disabled = true; n.textContent = 'This browser cannot make passkeys.'; n.hidden = false; }
+b.onclick = () => pkAdd(${JSON.stringify(csrf)}, n);` });
+}
