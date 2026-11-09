@@ -74,7 +74,7 @@ Trust `.local/caddy-root.crt` once (browser, or `NODE_EXTRA_CA_CERTS` for Node).
 
 | Variable | |
 |---|---|
-| `ADMIN_EMAILS` | administrators; everyone else who signs in is an owner of their own modules. They are also the addresses told of new modules (Settings, Options; on by default) |
+| `ADMIN_EMAILS` | administrators who cannot be removed in the panel (more are added under Settings, Administrators); everyone else who signs in is an owner of their own modules. They are also the addresses told of new modules (Settings, Options; on by default) |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` | Encedo OIDC client (test: `https://test.oidc.encedo.com`) |
 | `SESSION_SECRET` | long random string |
 | `SMTP_HOST`, `SMTP_MODE` (`starttls` / `ssl`), `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | sign-in links and e-mail confirmation; without them both go to the app log (`docker compose logs app`) |

@@ -34,7 +34,7 @@ export function session(req) { const s = unseal(cookies(req).pg_s); if (s && !s.
 export const sessionCookie = (user, via, role = 'admin') => setCookie('pg_s', seal({ u: user, via, role, exp: Math.floor(Date.now() / 1000) + SESSION_TTL }), SESSION_TTL);
 /** One address, one role: an administrator signs in at admin.<domain>, everyone else at account.<domain>. */
 export const roleOf = (email) => (isAdminEmail(email) ? 'admin' : 'owner');
-export const isAdminEmail = (email) => admins.has(String(email).toLowerCase());
+export const isAdminEmail = (email) => { const e = String(email).toLowerCase(); return envAdmins.has(e) || panelAdmins.has(e); };
 
 // ---- sign-in link by e-mail (owners without an Encedo identity) ---------------------------------
 const usedLinks = new Map();                       // link id -> expiry, so a link works once
@@ -65,9 +65,15 @@ const OIDC = {
   redirect: process.env.OIDC_REDIRECT_URI,
 };
 export const oidcEnabled = () => !!(OIDC.issuer && OIDC.clientId && OIDC.secret && OIDC.redirect);
-const admins = new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
-/** The administrators' addresses. */
-export const adminEmails = () => [...admins];
+// Administrators: ADMIN_EMAILS from the .env (fixed, cannot be removed in the panel) and the
+// addresses added under Settings (@settings.admins), which the server refreshes on every panel request.
+const envAdmins = new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
+let panelAdmins = new Set();
+export const setPanelAdmins = (list) => { panelAdmins = new Set((list ?? []).map((x) => String(x).toLowerCase())); };
+/** The fixed administrators, from the .env. */
+export const envAdminEmails = () => [...envAdmins];
+/** Every administrator: the .env's and `extra` (the panel's list, when the caller has it fresher). */
+export const adminEmails = (extra = [...panelAdmins]) => [...new Set([...envAdmins, ...extra.map((x) => String(x).toLowerCase())])];
 let discovery = null;
 async function disco() {
   if (!discovery) {

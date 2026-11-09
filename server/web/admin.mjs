@@ -90,7 +90,21 @@ ${reqs.slice(0, 50).map((r) => `<tr><td class="mono">${new Date(r.t * 1000).toIS
   return adminShell(cfg, 'modules', main, { count, user: sess.u, role: sess.role });
 }
 
-export function settingsPage(cfg, sess, s, { count, saved = false, error = null, mailOk }) {
+/** Administrators: the .env's (fixed) and those added here, each removable. */
+function adminsCard(csrf, fixed, added, me, error, value) {
+  const row = (e, tail) => `<tr><td>${esc(e)}${e === me.toLowerCase() ? ' <span class="soft">(you)</span>' : ''}</td><td class="r">${tail}</td></tr>`;
+  const remove = (e) => `<form method="post" action="/admins/remove"><input type="hidden" name="csrf" value="${esc(csrf)}"><input type="hidden" name="email" value="${esc(e)}"><button class="button small plain" type="submit">Remove</button></form>`;
+  const rows = [...fixed.map((e) => row(e, '<span class="soft">server .env</span>')), ...added.filter((e) => !fixed.includes(e)).map((e) => row(e, remove(e)))].join('');
+  return `<section class="card" id="admins"><div class="card-head"><span>Administrators</span><span class="v">${fixed.length + added.filter((e) => !fixed.includes(e)).length}</span></div><div class="card-body stack">
+<table class="table"><tbody>${rows}</tbody></table>
+${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
+<form method="post" action="/admins" class="row"><input type="hidden" name="csrf" value="${esc(csrf)}"><input name="email" type="email" placeholder="name@example.com" value="${esc(value)}" aria-label="Administrator's e-mail" autocapitalize="none" autocorrect="off" required><button class="button" type="submit">Add an administrator</button></form>
+<p class="hint">An administrator signs in at admin. and sees every module, their own among them; the address no longer signs in at account. A change counts at once: someone signed in with the old role signs in again. The addresses in the server's .env stay administrators whatever is done here.</p>
+</div></section>
+`;
+}
+
+export function settingsPage(cfg, sess, s, { count, saved = false, error = null, mailOk, envAdmins = [], adminError = null, adminValue = '' }) {
   const csrf = auth.csrfToken(sess);
   const head = { auto: 'Anyone can register a module, and it answers at once.', email: 'A module answers once its owner confirms the e-mail.', approve: 'A module answers once its e-mail is confirmed and you approve it.' }[s.mode];
   const choice = (v, title, text) => `<label class="choice block"><input type="radio" name="mode" value="${v}"${s.mode === v ? ' checked' : ''}${v !== 'auto' && !mailOk ? ' disabled' : ''}><span><b>${title}</b><p class="soft">${text}</p></span></label>`;
@@ -117,7 +131,8 @@ ${num('idleDays', 'Delete after idle days', '0 keeps modules for ever.')}${num('
 <section class="card"><div class="card-head"><span>Mail</span><span class="v">${mailOk ? 'set up' : 'not set up'}</span></div><div class="card-body">
 <p class="hint">Mail settings live in the server's .env (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM), not here, so a password never sits in the database.${mailOk ? '' : ' Without them only automatic registration is offered.'}</p></div></section>
 <div class="row"><button class="button" type="submit">Save the settings</button><a class="button plain" href="/settings">Discard changes</a></div>
-</form>`;
+</form>
+${adminsCard(csrf, envAdmins, s.admins ?? [], sess.u, adminError, adminValue)}`;
   return adminShell(cfg, 'settings', main, { count, user: sess.u, role: sess.role });
 }
 

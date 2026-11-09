@@ -23,7 +23,7 @@ done, and the facts that have already cost time.
   Do not spread a module over several keys. Global state is `@settings` and
   `@reserved` (reserved prefix patterns).
 - **No passwords.** Sign-in is a one-time link by e-mail or Encedo OIDC. An address
-  has one role: in `ADMIN_EMAILS` it is an administrator and signs in at `admin.`,
+  has one role: in `ADMIN_EMAILS` or the panel's list (`@settings.admins`) it is an administrator and signs in at `admin.`,
   otherwise it is an owner and signs in at `account.`, seeing only modules whose
   `meta.email` is theirs. The link always goes to the address's own site; OIDC has
   one callback (on `admin.`) and hands an owner on to `account.` with a one-minute

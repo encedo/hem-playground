@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS = {
   mode: 'auto',                // auto | email | approve
   modulesPerEmail: 3, keysPerModule: 512, rpm: 3000, idleDays: 30, logKeep: 200,
   notifyNew: true,             // e-mail the administrators on a registration and on its confirmation
+  admins: [],                  // administrators added in the panel (besides ADMIN_EMAILS)
 };
 
 // Reserved prefixes. The system names are fixed here (the sites, and the DNS names
@@ -36,15 +37,28 @@ function factoryLogs(dev, boot) {
 }
 
 export class Registry {
-  /** admins: the addresses told of new modules (ADMIN_EMAILS). */
-  constructor(store, domain, mailer, admins = []) { Object.assign(this, { store, domain, mailer, admins }); }
+  /** admins(settings): the administrators' addresses, told of new modules. */
+  constructor(store, domain, mailer, admins = () => []) { Object.assign(this, { store, domain, mailer, admins }); }
 
   /** Tell the administrators of a registration or a confirmation, when the setting asks for it. Never fails the caller. */
   async notifyAdmins(s, meta, what) {
-    if (!s.notifyNew || !this.admins.length) return;
+    const to = this.admins(s);
+    if (!s.notifyNew || !to.length) return;
     const host = `${meta.prefix}.${this.domain}`;
     const text = `${what}\n\nPrefix:   ${meta.prefix}\nE-mail:   ${meta.email}\nVariant:  ${meta.variant}\nState:    ${meta.state}\n\nhttps://admin.${this.domain}/m/${encodeURIComponent(meta.prefix)}\n\nThese messages are switched off under Settings, Options.`;
-    for (const to of this.admins) await this.mailer.send(to, `${what.split('.')[0]}: ${host}`, text).catch((e) => console.error('mail', e.message));
+    for (const a of to) await this.mailer.send(a, `${what.split('.')[0]}: ${host}`, text).catch((e) => console.error('mail', e.message));
+  }
+
+  async addAdmin(email) {
+    email = String(email ?? '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return { error: 'That does not look like an e-mail address.' };
+    const s = await this.settings();
+    if (!s.admins.includes(email)) await this.store.saveSettings({ admins: [...s.admins, email].sort() });
+    return { email };
+  }
+  async removeAdmin(email) {
+    const s = await this.settings();
+    await this.store.saveSettings({ admins: s.admins.filter((x) => x !== String(email ?? '').toLowerCase()) });
   }
 
   async settings() { const { reserved, ...rest } = await this.store.settings(); return { ...DEFAULT_SETTINGS, ...rest }; }

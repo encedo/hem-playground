@@ -108,7 +108,7 @@ a field of that hash:
 | `log` | The last requests, for the panel |
 | `audit:<id>` | Audit log files |
 
-Two hashes are global: `@settings` (registration mode, limits, options) and `@reserved`
+Two hashes are global: `@settings` (registration mode, limits, options, administrators added in the panel) and `@reserved`
 (prefix patterns that cannot be registered: brand names, offensive words,
 premium names, and the playground's own names).
 
@@ -144,8 +144,8 @@ There are no passwords to the panel.
 - **Sign-in link.** Someone types an e-mail address and gets a one-time link,
   valid for 15 minutes.
 - **Encedo OIDC.** Someone signs in with their own HEM at test.oidc.encedo.com.
-- **One address, one role.** An address in `ADMIN_EMAILS` is an administrator
-  and signs in at `admin.`. Anyone else is an owner and signs in at `account.`,
+- **One address, one role.** An address in `ADMIN_EMAILS`, or added under
+  Settings, Administrators, is an administrator and signs in at `admin.`. Anyone else is an owner and signs in at `account.`,
   where they see only the modules registered with their address. The role
   travels in a signed session cookie, and every route checks it.
 

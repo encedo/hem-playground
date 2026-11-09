@@ -26,7 +26,7 @@ const PORT = Number(process.env.PORT || 8080);
 const MANAGER_DIR = path.resolve(process.env.MANAGER_DIR || path.join(HERE, '..', 'manager'));
 const store = new Store(process.env.REDIS_URL || 'redis://127.0.0.1:6379');
 const mailer = new Mailer();
-const registry = new Registry(store, DOMAIN, mailer, auth.adminEmails());
+const registry = new Registry(store, DOMAIN, mailer, (s) => auth.adminEmails(s.admins));
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
@@ -125,6 +125,7 @@ const siteUrl = (site, rest = '/') => `https://${site}.${DOMAIN}${rest}`;
 
 async function panelSite(req, res, url, site) {
   const cfg = { ...(await viewCfg()), site };
+  auth.setPanelAdmins(cfg.admins);              // so a change to the list counts at once
   const p = url.pathname;
   const signin = (status, o = {}) => html(res, status, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), ...o }));
   if (p.startsWith('/assets/')) return assets(res, p.slice(8));
@@ -172,6 +173,7 @@ async function panelSite(req, res, url, site) {
   const sess = auth.session(req);
   if (!sess) return redirect(res, '/login');
   if (siteOf(sess.role) !== site) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });   // a cookie from before the split
+  if (auth.roleOf(sess.u) !== sess.role) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() }); // the address changed role: sign in again at its site
   let f = null;
   if (req.method === 'POST') {
     f = await form(req);
@@ -181,7 +183,7 @@ async function panelSite(req, res, url, site) {
   const all = await registry.all();
   // an owner sees and acts on the modules registered with their e-mail, nothing else
   const mods = isAdmin ? all : all.filter((x) => x.email.toLowerCase() === sess.u.toLowerCase());
-  const adminOnly = ['/settings', '/reserved', '/reserved/remove', '/create'];
+  const adminOnly = ['/settings', '/admins', '/admins/remove', '/reserved', '/reserved/remove', '/create'];
   if (p === '/check' && req.method === 'GET') {
     const pre = (url.searchParams.get('prefix') ?? '').trim().toLowerCase();
     const why = await registry.whyNot(pre, cfg, { byAdmin: isAdmin });
@@ -208,10 +210,16 @@ async function panelSite(req, res, url, site) {
       if (s.logKeep !== undefined) s.logKeep = Math.max(10, Math.min(s.logKeep, 2000));
       s.notifyNew = f.get('notifyNew') === 'on';
       await store.saveSettings(s);
-      return html(res, 200, admin.settingsPage(await viewCfg(), sess, await registry.settings(), { count: mods.length, saved: true, mailOk: mailer.configured }));
+      return html(res, 200, admin.settingsPage(await viewCfg(), sess, await registry.settings(), { count: mods.length, saved: true, mailOk: mailer.configured, envAdmins: auth.envAdminEmails() }));
     }
-    return html(res, 200, admin.settingsPage(cfg, sess, await registry.settings(), { count: mods.length, mailOk: mailer.configured }));
+    return html(res, 200, admin.settingsPage(cfg, sess, await registry.settings(), { count: mods.length, mailOk: mailer.configured, envAdmins: auth.envAdminEmails() }));
   }
+  if (p === '/admins' && req.method === 'POST') {
+    const r = await registry.addAdmin(f.get('email'));
+    if (r.error) return html(res, 400, admin.settingsPage(cfg, sess, await registry.settings(), { count: mods.length, mailOk: mailer.configured, envAdmins: auth.envAdminEmails(), adminError: r.error, adminValue: f.get('email') ?? '' }));
+    return redirect(res, '/settings#admins');
+  }
+  if (p === '/admins/remove' && req.method === 'POST') { await registry.removeAdmin(f.get('email')); return redirect(res, '/settings#admins'); }
   if (p === '/reserved' && req.method === 'GET') return html(res, 200, admin.reservedPage(cfg, sess, await registry.reservedList(), mods, url.searchParams, { count: mods.length }));
   if (p === '/reserved' && req.method === 'POST') {
     const r = await registry.reserve((f.get('patterns') ?? '').split(/[\s,]+/), f.get('kind'), f.get('note'), sess.u);
