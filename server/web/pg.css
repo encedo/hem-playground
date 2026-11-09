@@ -93,3 +93,15 @@ td.risk { color: var(--exposed); }
 .pg-add[open] .pg-plus { background: var(--sunken); }
 .pg-add form { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .pg-add .field .name { font-family: var(--mono); font-size: 10.5px; }
+
+/* a table in a card starts and ends where the card's text does */
+.card th:first-child, .card td:first-child { padding-left: 24px; }
+.card th:last-child, .card td:last-child { padding-right: 24px; }
+/* the modules list: range, page size, previous / next */
+.pg-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; }
+.pg-pager > span:first-child { flex: 1 1 auto; }
+.pg-per { display: flex; gap: 10px; align-items: center; font-family: var(--mono); font-size: 12px; }
+.pg-per b { color: var(--sealed); }
+.pg-nav { display: flex; gap: 8px; align-items: center; }
+.pg-of { font-family: var(--mono); font-size: 12px; min-width: 48px; text-align: center; }
+.pg-nav [aria-disabled="true"] { opacity: .45; pointer-events: none; }

@@ -21,30 +21,38 @@ export function modulesPage(cfg, sess, mods, query, create = {}) {
   const shown = mods.filter((m) => (filter === 'all' || m.state === filter) && (!q || m.prefix.includes(q) || m.email.toLowerCase().includes(q)))
     .sort((a, b) => (b.lastReq || b.created) - (a.lastReq || a.created));
   const owner = sess.role !== 'admin';
+  // pages of 10, 30 or 50; the search, the filter and the page size travel in every link
+  const per = [10, 30, 50].includes(Number(query.get('per'))) ? Number(query.get('per')) : 10;
+  const pages = Math.max(1, Math.ceil(shown.length / per));
+  const page = Math.min(pages, Math.max(1, Number.parseInt(query.get('page'), 10) || 1));
+  const onPage = shown.slice((page - 1) * per, page * per);
+  const href = (o) => { const u = new URLSearchParams({ state: filter, ...(q ? { q } : {}), per: String(per), ...o }); if (u.get('per') === '10') u.delete('per'); if (u.get('state') === 'all') u.delete('state'); if (u.get('page') === '1') u.delete('page'); const s = u.toString(); return s ? `/?${s}` : '/'; };
   const head = owner ? (mods.length === 0 ? 'No module is registered with your address.' : mods.length === 1 ? 'One module is yours.' : `${word(mods.length, true)} modules are yours.`)
     : mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
   const room = !(cfg.modulesPerEmail > 0 && mods.length >= cfg.modulesPerEmail);
   const lede = owner ? (mods.length ? `Open one to reboot it, put it back in its box or give its prefix up.${room ? ' Add another under the list.' : ''}` : 'Add one under the list.')
     : mods.length === 0 ? `The first one appears here as soon as someone registers at ${esc(cfg.domain)}.`
     : `${word(counts.active, true)} ${plural(counts.active, 'answers', 'answer')} requests${counts.blocked ? `, ${word(counts.blocked)} ${plural(counts.blocked, 'is', 'are')} blocked` : ''}${counts.unconfirmed ? `, ${word(counts.unconfirmed)} ${plural(counts.unconfirmed, 'waits', 'wait')} for an e-mail to be confirmed` : ''}. Registration is ${esc(MODE_LABEL[cfg.mode])}.`;
-  const seg = (key, label) => `<a href="/?state=${key}${q ? `&q=${encodeURIComponent(q)}` : ''}"${filter === key ? ' class="on"' : ''}>${label} ${counts[key]}</a>`;
+  const seg = (key, label) => `<a href="${esc(href({ state: key }))}"${filter === key ? ' class="on"' : ''}>${label} ${counts[key]}</a>`;
   const needs = !owner && waiting.length ? `<section class="card needs"><div class="card-head"><span>Needs you</span><span>${waiting.length} ${plural(waiting.length, 'registration', 'registrations')}</span></div>
 <div class="table-wrap"><table><thead><tr><th>Prefix</th><th>E-mail</th><th>Variant</th><th>Confirmed</th><th></th></tr></thead><tbody>
 ${waiting.map((m) => `<tr><td class="mono">${esc(m.prefix)}</td><td class="mono">${esc(m.email)}</td><td class="mono">${esc(m.variant)}</td><td class="mono">${date(m.confirmed)}</td>
 <td><div class="acts">${actForm(m.prefix, 'approve', 'Approve', csrf, '')}${actForm(m.prefix, 'reject', 'Reject', csrf)}</div></td></tr>`).join('')}
 </tbody></table></div></section>` : '';
   // an owner's modules are all theirs: no Owner column for them
-  const rows = shown.map((m) => `<tr><td class="mono"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td>${owner ? '' : `<td class="mono">${esc(m.email)}</td>`}<td class="mono">${esc(m.variant)}</td>
+  const rows = onPage.map((m) => `<tr><td class="mono"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td>${owner ? '' : `<td class="mono">${esc(m.email)}</td>`}<td class="mono">${esc(m.variant)}</td>
 <td>${pill(m.state)}</td><td>${m.inited ? 'Yes' : 'Not yet'}</td><td class="mono">${m.keys}</td><td class="mono">${ago(m.lastReq)}</td>
 <td><div class="acts">${m.state === 'active' ? `<a class="button small plain" href="${esc(managerUrl(cfg, m.prefix))}">Open in the Manager</a>` : ''}</div></td></tr>`).join('');
   const main = `<div class="page-head"><p class="eyebrow">Modules</p><h1>${head}</h1><p>${lede}</p></div>${needs}
 <section class="card"><div class="card-head"><span>All modules</span><span class="v">${mods.length}</span></div>
-<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="${owner ? 'Prefix' : 'Prefix or e-mail'}" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">
+<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="${owner ? 'Prefix' : 'Prefix or e-mail'}" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">${per !== 10 ? `<input type="hidden" name="per" value="${per}">` : ''}
 <div class="seg" role="group" aria-label="Filter by state">${seg('all', 'All')}${seg('active', 'Active')}${seg('pending', 'Waiting')}${seg('blocked', 'Blocked')}${counts.unconfirmed ? seg('unconfirmed', 'Unconfirmed') : ''}</div></form>
 ${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Prefix</th>${owner ? '' : '<th>Owner</th>'}<th>Variant</th><th>State</th><th>Personalised</th><th>Keys</th><th>Last request</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="card-body"><p class="soft">${mods.length ? 'Nothing matches.' : 'Nothing registered yet.'}</p></div>`}
 ${owner ? addRow(cfg, sess, mods, create) : ''}
-<div class="card-foot"><span>${shown.length} of ${mods.length}, newest request first</span></div></section>
+<div class="card-foot pg-pager"><span>${shown.length ? `${(page - 1) * per + 1}–${(page - 1) * per + onPage.length} of ${shown.length}` : '0'}${shown.length !== mods.length ? ` (${mods.length} in all)` : ''}, newest request first</span>
+<span class="pg-per">Per page ${[10, 30, 50].map((n) => n === per ? `<b>${n}</b>` : `<a href="${esc(href({ per: String(n), page: '1' }))}">${n}</a>`).join(' ')}</span>
+${pages > 1 ? `<span class="pg-nav">${page > 1 ? `<a class="button small plain" href="${esc(href({ page: String(page - 1) }))}" rel="prev">Previous</a>` : '<span class="button small plain" aria-disabled="true">Previous</span>'}<span class="pg-of">${page} / ${pages}</span>${page < pages ? `<a class="button small plain" href="${esc(href({ page: String(page + 1) }))}" rel="next">Next</a>` : '<span class="button small plain" aria-disabled="true">Next</span>'}</span>` : ''}</div></section>
 ${owner ? '' : createCard(cfg, sess, create)}`;
   return adminShell(cfg, 'modules', main, { count: mods.length, user: sess.u, role: sess.role, script: owner ? prefixScript('a-prefix', 'a-hint') : prefixScript('c-prefix', 'c-hint') });
 }
