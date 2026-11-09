@@ -123,6 +123,16 @@ async function publicSite(req, res, url) {
 const siteOf = (role) => (role === 'admin' ? 'admin' : 'account');
 const siteUrl = (site, rest = '/') => `https://${site}.${DOMAIN}${rest}`;
 
+/** An administrator added or removed: the address itself is told, and so is every other administrator. */
+async function tellAdmins(by, who, added) {
+  const send = (to, subject, text) => mailer.send(to, subject, text).catch((e) => console.error('mail', e.message));
+  const admin = siteUrl('admin');
+  if (added) await send(who, 'You are an administrator of the HEM Playground', `${by} made you an administrator of the HEM Playground.\n\nSign in at ${admin} with this address, by a sign-in link or Encedo OIDC. You see every module there, your own among them; this address no longer signs in at account.${DOMAIN}.`);
+  else await send(who, 'You are no longer an administrator of the HEM Playground', `${by} removed this address from the administrators of the HEM Playground.\n\nIf it owns modules, it signs in at ${siteUrl('account')} from now on.`);
+  const what = added ? `${by} made ${who} an administrator.` : `${by} removed ${who} from the administrators.`;
+  for (const to of auth.adminEmails()) if (to !== who && to !== by.toLowerCase()) await send(to, `Administrators: ${who} ${added ? 'added' : 'removed'}`, `${what}\n\nThe list is under ${admin}settings#admins.`);
+}
+
 async function panelSite(req, res, url, site) {
   const cfg = { ...(await viewCfg()), site };
   auth.setPanelAdmins(cfg.admins);              // so a change to the list counts at once
@@ -217,9 +227,14 @@ async function panelSite(req, res, url, site) {
   if (p === '/admins' && req.method === 'POST') {
     const r = await registry.addAdmin(f.get('email'));
     if (r.error) return html(res, 400, admin.settingsPage(cfg, sess, await registry.settings(), { count: mods.length, mailOk: mailer.configured, envAdmins: auth.envAdminEmails(), adminError: r.error, adminValue: f.get('email') ?? '' }));
+    if (r.added) await tellAdmins(sess.u, r.email, true);
     return redirect(res, '/settings#admins');
   }
-  if (p === '/admins/remove' && req.method === 'POST') { await registry.removeAdmin(f.get('email')); return redirect(res, '/settings#admins'); }
+  if (p === '/admins/remove' && req.method === 'POST') {
+    const r = await registry.removeAdmin(f.get('email'));
+    if (r.removed) await tellAdmins(sess.u, r.email, false);
+    return redirect(res, '/settings#admins');
+  }
   if (p === '/reserved' && req.method === 'GET') return html(res, 200, admin.reservedPage(cfg, sess, await registry.reservedList(), mods, url.searchParams, { count: mods.length }));
   if (p === '/reserved' && req.method === 'POST') {
     const r = await registry.reserve((f.get('patterns') ?? '').split(/[\s,]+/), f.get('kind'), f.get('note'), sess.u);

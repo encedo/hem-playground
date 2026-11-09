@@ -53,12 +53,16 @@ export class Registry {
     email = String(email ?? '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return { error: 'That does not look like an e-mail address.' };
     const s = await this.settings();
-    if (!s.admins.includes(email)) await this.store.saveSettings({ admins: [...s.admins, email].sort() });
-    return { email };
+    if (s.admins.includes(email)) return { email, added: false };
+    await this.store.saveSettings({ admins: [...s.admins, email].sort() });
+    return { email, added: true };
   }
   async removeAdmin(email) {
+    email = String(email ?? '').toLowerCase();
     const s = await this.settings();
-    await this.store.saveSettings({ admins: s.admins.filter((x) => x !== String(email ?? '').toLowerCase()) });
+    if (!s.admins.includes(email)) return { email, removed: false };
+    await this.store.saveSettings({ admins: s.admins.filter((x) => x !== email) });
+    return { email, removed: true };
   }
 
   async settings() { const { reserved, ...rest } = await this.store.settings(); return { ...DEFAULT_SETTINGS, ...rest }; }
