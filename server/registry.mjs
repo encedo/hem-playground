@@ -8,6 +8,7 @@ import { newBoot, newDevice, newLogFile, logAppend, LOG } from './sim/device.mjs
 export const DEFAULT_SETTINGS = {
   mode: 'auto',                // auto | email | approve
   modulesPerEmail: 3, keysPerModule: 512, rpm: 3000, idleDays: 30, logKeep: 200,
+  notifyNew: true,             // e-mail the administrators on a registration and on its confirmation
 };
 
 // Reserved prefixes. The system names are fixed here (the sites, and the DNS names
@@ -35,7 +36,16 @@ function factoryLogs(dev, boot) {
 }
 
 export class Registry {
-  constructor(store, domain, mailer) { Object.assign(this, { store, domain, mailer }); }
+  /** admins: the addresses told of new modules (ADMIN_EMAILS). */
+  constructor(store, domain, mailer, admins = []) { Object.assign(this, { store, domain, mailer, admins }); }
+
+  /** Tell the administrators of a registration or a confirmation, when the setting asks for it. Never fails the caller. */
+  async notifyAdmins(s, meta, what) {
+    if (!s.notifyNew || !this.admins.length) return;
+    const host = `${meta.prefix}.${this.domain}`;
+    const text = `${what}\n\nPrefix:   ${meta.prefix}\nE-mail:   ${meta.email}\nVariant:  ${meta.variant}\nState:    ${meta.state}\n\nhttps://admin.${this.domain}/m/${encodeURIComponent(meta.prefix)}\n\nThese messages are switched off under Settings, Options.`;
+    for (const to of this.admins) await this.mailer.send(to, `${what.split('.')[0]}: ${host}`, text).catch((e) => console.error('mail', e.message));
+  }
 
   async settings() { const { reserved, ...rest } = await this.store.settings(); return { ...DEFAULT_SETTINGS, ...rest }; }
 
@@ -102,7 +112,7 @@ export class Registry {
    * verified: the e-mail is already proven (an owner signed in), so there is no confirmation; approval still applies.
    */
   async register({ prefix, email, variant }, { byAdmin = false, verified = false } = {}) {
-    const s = await this.settings();
+    const s = await this.settings(), s0 = { ...s };
     if (byAdmin) s.mode = 'auto';
     const approve = verified && s.mode === 'approve';
     if (verified) s.mode = 'auto';
@@ -128,6 +138,7 @@ export class Registry {
       await this.mailer.send(email, `Confirm ${prefix}.${this.domain}`,
         `Open this link to confirm the virtual module ${prefix}.${this.domain}:\n\n${link}\n\nThe link is good for 24 hours. If you did not ask for it, ignore this message and the prefix is freed.`);
     }
+    if (!byAdmin) await this.notifyAdmins(s0, meta, 'New module registered.');
     return { meta };
   }
 
@@ -140,6 +151,7 @@ export class Registry {
     meta.confirmed = Math.floor(Date.now() / 1000);
     delete meta.confirm; delete meta.confirmExp;
     await this.store.set(prefix, { meta });
+    await this.notifyAdmins(s, meta, 'Module confirmed by e-mail.');
     return { meta };
   }
 

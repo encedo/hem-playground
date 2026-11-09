@@ -110,6 +110,10 @@ ${num('idleDays', 'Delete after idle days', '0 keeps modules for ever.')}${num('
 </div>
 <p class="hint">Prefixes nobody may register are under <a href="/reserved">Reserved prefixes</a>.</p>
 </div></section>
+<section class="card"><div class="card-head"><span>Options</span></div><div class="card-body stack">
+<label class="choice block"><input type="checkbox" name="notifyNew"${s.notifyNew ? ' checked' : ''}><span><b>Tell the administrators of new modules</b><p class="soft">An e-mail with the prefix and the owner's address when a module is registered, and another when its owner confirms the e-mail, so abuse shows. Not for modules made here.${mailOk ? '' : ' Without mail set up the message only goes to the server log.'}</p></span></label>
+<p class="hint">More options will come here.</p>
+</div></section>
 <section class="card"><div class="card-head"><span>Mail</span><span class="v">${mailOk ? 'set up' : 'not set up'}</span></div><div class="card-body">
 <p class="hint">Mail settings live in the server's .env (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM), not here, so a password never sits in the database.${mailOk ? '' : ' Without them only automatic registration is offered.'}</p></div></section>
 <div class="row"><button class="button" type="submit">Save the settings</button><a class="button plain" href="/settings">Discard changes</a></div>

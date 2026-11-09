@@ -108,7 +108,7 @@ a field of that hash:
 | `log` | The last requests, for the panel |
 | `audit:<id>` | Audit log files |
 
-Two hashes are global: `@settings` (registration mode, limits) and `@reserved`
+Two hashes are global: `@settings` (registration mode, limits, options) and `@reserved`
 (prefix patterns that cannot be registered: brand names, offensive words,
 premium names, and the playground's own names).
 

@@ -66,6 +66,8 @@ const OIDC = {
 };
 export const oidcEnabled = () => !!(OIDC.issuer && OIDC.clientId && OIDC.secret && OIDC.redirect);
 const admins = new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
+/** The administrators' addresses. */
+export const adminEmails = () => [...admins];
 let discovery = null;
 async function disco() {
   if (!discovery) {

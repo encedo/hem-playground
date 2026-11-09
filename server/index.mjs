@@ -26,7 +26,7 @@ const PORT = Number(process.env.PORT || 8080);
 const MANAGER_DIR = path.resolve(process.env.MANAGER_DIR || path.join(HERE, '..', 'manager'));
 const store = new Store(process.env.REDIS_URL || 'redis://127.0.0.1:6379');
 const mailer = new Mailer();
-const registry = new Registry(store, DOMAIN, mailer);
+const registry = new Registry(store, DOMAIN, mailer, auth.adminEmails());
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
@@ -206,6 +206,7 @@ async function panelSite(req, res, url, site) {
         if (Number.isInteger(v) && v >= 0 && v <= 100000) s[k] = v;
       }
       if (s.logKeep !== undefined) s.logKeep = Math.max(10, Math.min(s.logKeep, 2000));
+      s.notifyNew = f.get('notifyNew') === 'on';
       await store.saveSettings(s);
       return html(res, 200, admin.settingsPage(await viewCfg(), sess, await registry.settings(), { count: mods.length, saved: true, mailOk: mailer.configured }));
     }
