@@ -8,6 +8,7 @@
 // says so in X-Forwarded-Proto; the module answers 418 where it needs TLS.
 
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,20 +52,30 @@ async function form(req) {
   return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
 }
 
-async function serveFile(res, root, rel) {
+async function serveFile(res, root, rel, cache = 'no-cache') {
   const file = path.resolve(root, '.' + path.posix.normalize('/' + rel));
   if (!file.startsWith(root + path.sep) && file !== root) { res.writeHead(404); return res.end(); }
   try {
     const body = await fs.readFile(file);
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream', 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' });
     res.end(body);
   } catch { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); }
 }
 
-async function assets(res, rel) {
-  if (rel === 'manager.css') return serveFile(res, path.join(MANAGER_DIR, 'app'), 'style.css');
-  if (rel === 'favicon.svg') return serveFile(res, MANAGER_DIR, 'favicon.svg');
-  if (rel === 'pg.css') return serveFile(res, path.join(HERE, 'web'), 'pg.css');
+// The pages link the style sheets as ?v=<hash of their content>: a browser keeps them for good
+// and fetches them again only when a deploy changes them, so a page never paints without them.
+const ASSET_FILES = { 'manager.css': path.join(MANAGER_DIR, 'app', 'style.css'), 'pg.css': path.join(HERE, 'web', 'pg.css'), 'favicon.svg': path.join(MANAGER_DIR, 'favicon.svg') };
+{
+  const h = crypto.createHash('sha256');
+  for (const f of Object.values(ASSET_FILES)) h.update(await fs.readFile(f).catch(() => ''));
+  ui.setAssetVersion(h.digest('hex').slice(0, 12));
+}
+
+async function assets(res, rel, versioned = false) {
+  const cache = versioned ? 'public, max-age=31536000, immutable' : 'no-cache';
+  if (rel === 'manager.css') return serveFile(res, path.join(MANAGER_DIR, 'app'), 'style.css', cache);
+  if (rel === 'favicon.svg') return serveFile(res, MANAGER_DIR, 'favicon.svg', cache);
+  if (rel === 'pg.css') return serveFile(res, path.join(HERE, 'web'), 'pg.css', cache);
   res.writeHead(404); res.end();
 }
 
@@ -101,7 +112,7 @@ setInterval(() => registry.sweep().catch((e) => console.error('sweep', e.message
 // ---- sites ---------------------------------------------------------------------------------------
 async function publicSite(req, res, url) {
   const cfg = await viewCfg();
-  if (url.pathname.startsWith('/assets/')) return assets(res, url.pathname.slice(8));
+  if (url.pathname.startsWith('/assets/')) return assets(res, url.pathname.slice(8), url.searchParams.has('v'));
   if (url.pathname === '/' && req.method === 'GET') return html(res, 200, ui.registerPage(cfg));
   if (url.pathname === '/check' && req.method === 'GET') {
     const p = (url.searchParams.get('prefix') ?? '').trim().toLowerCase();
@@ -147,7 +158,7 @@ async function panelSite(req, res, url, site) {
   auth.setPanelAdmins(cfg.admins);              // so a change to the list counts at once
   const p = url.pathname;
   const signin = (status, o = {}) => html(res, status, admin.signinPage(cfg, { oidc: auth.oidcEnabled(), ...o }));
-  if (p.startsWith('/assets/')) return assets(res, p.slice(8));
+  if (p.startsWith('/assets/')) return assets(res, p.slice(8), url.searchParams.has('v'));
   if (p === '/login' && req.method === 'GET') return signin(200);
   if (p === '/login' && req.method === 'POST') {
     // a sign-in link by e-mail: to an administrator, or to the owner of at least one module, each

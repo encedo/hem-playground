@@ -7,9 +7,13 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 
 const MARK = `<svg viewBox="0 0 28 28" width="36" height="36" aria-hidden="true"><rect width="28" height="28" rx="6" fill="#0F5F4B"/><rect x="7" y="6" width="14" height="16" rx="2" fill="none" stroke="#F2F8F5" stroke-width="1.6"/><circle cx="14" cy="12.5" r="2.4" fill="none" stroke="#F2F8F5" stroke-width="1.6"/><path d="M14 15v4" stroke="#F2F8F5" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
+let assetV = '0';
+/** The style sheets' version, a hash of their content (set by the server at start). */
+export const setAssetVersion = (v) => { assetV = v; };
+
 export function doc(title, body, { script = '' } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><link rel="icon" href="/assets/favicon.svg"><link rel="stylesheet" href="/assets/manager.css"><link rel="stylesheet" href="/assets/pg.css"></head>
+<title>${esc(title)}</title><link rel="icon" href="/assets/favicon.svg?v=${assetV}"><link rel="stylesheet" href="/assets/manager.css?v=${assetV}"><link rel="stylesheet" href="/assets/pg.css?v=${assetV}"></head>
 <body>${body}${script ? `<script>${script}</script>` : ''}</body></html>`;
 }
 
