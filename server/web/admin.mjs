@@ -92,15 +92,18 @@ ${reqs.slice(0, 50).map((r) => `<tr><td class="mono">${new Date(r.t * 1000).toIS
 
 /** Administrators: the .env's (fixed) and those added here, each removable. */
 function adminsCard(csrf, fixed, added, me, error, value) {
-  const row = (e, tail) => `<tr><td>${esc(e)}${e === me.toLowerCase() ? ' <span class="soft">(you)</span>' : ''}</td><td class="r">${tail}</td></tr>`;
+  const extra = added.filter((e) => !fixed.includes(e));
   const remove = (e) => `<form method="post" action="/admins/remove"><input type="hidden" name="csrf" value="${esc(csrf)}"><input type="hidden" name="email" value="${esc(e)}"><button class="button small plain" type="submit">Remove</button></form>`;
-  const rows = [...fixed.map((e) => row(e, '<span class="soft">server .env</span>')), ...added.filter((e) => !fixed.includes(e)).map((e) => row(e, remove(e)))].join('');
-  return `<section class="card" id="admins"><div class="card-head"><span>Administrators</span><span class="v">${fixed.length + added.filter((e) => !fixed.includes(e)).length}</span></div><div class="card-body stack">
-<table class="table"><tbody>${rows}</tbody></table>
+  const row = (e, from, act) => `<tr><td>${esc(e)}${e === me.toLowerCase() ? ' <span class="soft">(you)</span>' : ''}</td><td class="soft">${from}</td><td><div class="acts">${act}</div></td></tr>`;
+  const rows = [...fixed.map((e) => row(e, 'Server .env', '')), ...extra.map((e) => row(e, 'Added here', remove(e)))].join('');
+  return `<section class="card" id="admins"><div class="card-head"><span>Administrators</span><span class="v">${fixed.length + extra.length}</span></div>
+<div class="table-wrap"><table class="compact"><thead><tr><th>Address</th><th>From</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<form class="card-body stack-s" method="post" action="/admins"><input type="hidden" name="csrf" value="${esc(csrf)}">
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
-<form method="post" action="/admins" class="row"><input type="hidden" name="csrf" value="${esc(csrf)}"><input name="email" type="email" placeholder="name@example.com" value="${esc(value)}" aria-label="Administrator's e-mail" autocapitalize="none" autocorrect="off" required><button class="button" type="submit">Add an administrator</button></form>
+<div class="pg-form-row pg-end"><div class="field pg-grow"><label for="admin-email">Add an administrator</label><input id="admin-email" name="email" type="email" placeholder="name@example.com" value="${esc(value)}" autocapitalize="none" autocorrect="off" required></div>
+<button class="button" type="submit">Add</button></div>
 <p class="hint">An administrator signs in at admin. and sees every module, their own among them; the address no longer signs in at account. A change counts at once: someone signed in with the old role signs in again. The addresses in the server's .env stay administrators whatever is done here.</p>
-</div></section>
+</form></section>
 `;
 }
 

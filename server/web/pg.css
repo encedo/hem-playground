@@ -72,6 +72,7 @@ td, th { vertical-align: middle; }
 .pg-limits input { max-width: 240px; }
 .pg-form-row { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-start; }
 .pg-grow { flex: 1 1 320px; }
+.pg-end { align-items: flex-end; }
 .pg-side { flex: 0 1 280px; }
 .pg-taglist { line-height: 1.9; color: var(--ink-soft); }
 td.risk { color: var(--exposed); }
