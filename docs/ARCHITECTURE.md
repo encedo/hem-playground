@@ -149,10 +149,16 @@ There are no passwords to the panel.
   `playground.ence.do`, so one passkey serves `admin.` and `account.`; the role
   comes from its address, as for a link. Adding or removing one is mailed to the
   address. `server/web/passkey.mjs` verifies with node:crypto, attestation none.
-- **One address, one role.** An address in `ADMIN_EMAILS`, or added under
-  Settings, Administrators, is an administrator and signs in at `admin.`. Anyone else is an owner and signs in at `account.`,
-  where they see only the modules registered with their address. The role
-  travels in a signed session cookie, and every route checks it.
+- **The site decides the role.** At `account.` everyone is an owner and sees only
+  the modules registered with their address, administrators too. `admin.` lets in
+  only an administrator: an address in `ADMIN_EMAILS` or added under Settings,
+  Administrators. Every way of signing in ends on the site it started from; OIDC
+  has one callback, on `admin.`, and hands a sign-in started at `account.` back
+  there. An address removed from the administrators keeps its owner's account.
+- **View as.** Under Accounts an administrator opens `account.` as a given owner,
+  for an hour, in a cookie of its own: the modules can be acted on, passkeys and
+  new modules are not offered, so the account cannot be taken over. The other
+  administrators are mailed; the owner is not.
 
 A module's own passwords are not on the server at all. As on hardware, the
 module keeps only the public keys the passwords derive.
@@ -206,7 +212,7 @@ module keeps only the public keys the passwords derive.
 - **Limits per owner.** Each address may hold a limited number of modules
   (3 by default), and each module a limited number of keys (512 by default).
 - **Administrators can do anything to any module.** They can block, reset or
-  delete it. They cannot sign in as its owner, but whoever runs the server can
+  delete it. They can look at an owner's account (View as), but cannot sign in to a module as its owner; whoever runs the server can
   read every key (see the warning at the top).
 
 **Nothing in it is secret.** Every private key, secret and device key is

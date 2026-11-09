@@ -112,13 +112,13 @@ export function messagePage(cfg, eyebrow, heading, text, extra = '') {
 }
 
 // ---- admin ------------------------------------------------------------------------------------
-export function adminShell(cfg, active, main, { count = 0, user = '', role = 'admin', script = '' } = {}) {
+export function adminShell(cfg, active, main, { count = 0, user = '', role = 'admin', script = '', viewing = null } = {}) {
   const nav = (href, label, key, c = '') => `<a href="${href}"${active === key ? ' class="active" aria-current="page"' : ''}>${label}${c !== '' ? ` <span class="pg-count">${c}</span>` : ''}</a>`;
   return doc(role === 'admin' ? 'Playground admin' : 'My modules', `<div class="app">
 <aside class="sidebar"><div class="brand">${MARK}<div class="name"><b>${role === 'admin' ? 'Playground admin' : 'HEM Playground'}</b></div></div>
-<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count)}${nav('/passkeys', 'Passkeys', 'passkeys')}</nav>
+<nav class="nav">${role === 'admin' ? nav('/', 'Modules', 'modules', count) + nav('/accounts', 'Accounts', 'accounts') + nav('/reserved', 'Reserved prefixes', 'reserved') + nav('/settings', 'Settings', 'settings') : nav('/', 'My modules', 'modules', count)}${viewing ? '' : nav('/passkeys', 'Passkeys', 'passkeys')}</nav>
 <div class="sidebar-foot"><span>Signed in as <span class="host">${esc(user)}</span></span>${role === 'admin' ? `<span>Registration: <span class="host">${esc(cfg.modeLabel)}</span></span>` : ''}<a href="/logout">Sign out</a></div></aside>
-<main class="main">${main}</main></div>`, { script });
+<main class="main">${viewing ? `<p class="notice pg-viewing">Viewing as <b>${esc(user)}</b>, opened by ${esc(viewing)}. Passkeys and new modules are not offered. <a href="/view-as/stop">Stop and go back</a></p>` : ''}${main}</main></div>`, { script });
 }
 
 const passkeyLogin = `${PASSKEY_JS}
@@ -133,7 +133,7 @@ export function signinPage(cfg, { error = null, oidc = true, email = '' } = {}) 
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
 <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" value="${esc(email)}" autocomplete="email" required></div>
 <button class="button" type="submit">Send me a sign-in link</button>
-<p class="note">${adm ? 'For administrators only; the owner of a module signs in at' : 'The address you registered a module with. The link works once, within 15 minutes; there is no password. Administrators sign in at'} <a href="https://${adm ? 'account' : 'admin'}.${esc(cfg.domain)}/login">${adm ? 'account' : 'admin'}.${esc(cfg.domain)}</a>.</p>
+<p class="note">${adm ? 'For administrators only. Everyone\'s own modules, administrators\' too, are at' : 'The address you registered a module with. The link works once, within 15 minutes; there is no password. The administration is at'} <a href="https://${adm ? 'account' : 'admin'}.${esc(cfg.domain)}/login">${adm ? 'account' : 'admin'}.${esc(cfg.domain)}</a>.</p>
 ${oidc ? `<div class="pg-or note"><span></span>or<span></span></div>
 <a class="button plain" href="/auth/oidc">Sign in with Encedo</a>` : ''}
 <button class="button plain" type="button" id="pk-go" hidden>Sign in with a passkey</button><p class="notice risk" id="pk-note" hidden></p>
@@ -146,6 +146,6 @@ export function linkSentPage(cfg, email) {
 <div class="brand">${MARK}<div class="name"><b>${adm ? 'Playground admin' : 'HEM Playground'}</b></div></div>
 <section class="card lifted"><div class="card-head"><span>Sign-in link</span><span class="v">sent</span></div>
 <div class="card-body"><p class="eyebrow">Check your inbox</p><h1>If ${esc(email)} can sign in here, the link is on its way.</h1>
-<p class="soft">It works once, within 15 minutes, and opens the panel that address belongs to: the administration for an administrator, the modules for their owner. Nothing arrives for an address the playground does not know.</p>
+<p class="soft">It works once, within 15 minutes, and opens ${adm ? 'the administration' : 'the modules registered with that address'}. Nothing arrives for an address that cannot sign in here.</p>
 <a class="button plain" href="/login">Use another address</a></div></section></div></div>`);
 }

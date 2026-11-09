@@ -32,7 +32,7 @@ function unseal(v) {
 /** The signed-in person: { u, via, role: 'admin' | 'owner' }. Owners see their own modules only. */
 export function session(req) { const s = unseal(cookies(req).pg_s); if (s && !s.role) s.role = 'admin'; return s; }
 export const sessionCookie = (user, via, role = 'admin') => setCookie('pg_s', seal({ u: user, via, role, exp: Math.floor(Date.now() / 1000) + SESSION_TTL }), SESSION_TTL);
-/** One address, one role: an administrator signs in at admin.<domain>, everyone else at account.<domain>. */
+/** Whether an address may use admin.<domain>. The role of a session is its site's: admin. or account. (everyone). */
 export const roleOf = (email) => (isAdminEmail(email) ? 'admin' : 'owner');
 export const isAdminEmail = (email) => { const e = String(email).toLowerCase(); return envAdmins.has(e) || panelAdmins.has(e); };
 
@@ -46,7 +46,7 @@ export function linkThrottled(ip) {
   return ++r.n > 5;
 }
 /** A one-time sign-in token: by e-mail (15 minutes), or the hand-off of an OIDC sign-in to account.<domain> (1 minute). */
-export function linkToken(email, via = 'link') { return seal({ e: String(email).toLowerCase(), v: via, j: crypto.randomBytes(9).toString('base64url'), exp: Math.floor(Date.now() / 1000) + (via === 'link' ? 900 : 60) }); }
+export function linkToken(email, via = 'link', by = null) { return seal({ e: String(email).toLowerCase(), v: via, ...(by ? { b: by } : {}), j: crypto.randomBytes(9).toString('base64url'), exp: Math.floor(Date.now() / 1000) + (via === 'link' ? 900 : 60) }); }
 /** { email, via } of a token that has not been used yet, or null. */
 export function redeemLink(token) {
   const t = unseal(token);
@@ -54,9 +54,16 @@ export function redeemLink(token) {
   const now = Date.now() / 1000;
   for (const [k, v] of usedLinks) if (v < now) usedLinks.delete(k);
   usedLinks.set(t.j, t.exp);
-  return { email: t.e, via: t.v ?? 'link' };
+  return { email: t.e, via: t.v ?? 'link', by: t.b ?? null };
 }
 export const clearSession = () => setCookie('pg_s', '', 0);
+
+// ---- View as: an administrator looks at account.<domain> as an owner, for an hour at most -------------
+// A cookie of its own (pg_as), so the administrator's own session there is left alone.
+const VIEW_TTL = 3600;
+export const viewAsCookie = (email, by) => setCookie('pg_as', seal({ u: email, by, role: 'owner', via: 'view-as', exp: Math.floor(Date.now() / 1000) + VIEW_TTL }), VIEW_TTL);
+export const viewAs = (req) => unseal(cookies(req).pg_as);
+export const clearViewAs = () => setCookie('pg_as', '', 0);
 export const csrfToken = (sess) => sign(`csrf:${sess.u}:${sess.exp}`);
 
 // ---- OIDC ---------------------------------------------------------------------------------------
@@ -84,10 +91,11 @@ async function disco() {
   return discovery;
 }
 
-export async function oidcStart() {
+/** from: the site the sign-in started on; the callback (on admin.) hands the session back to it. */
+export async function oidcStart(from = 'admin') {
   const d = await disco();
   const verifier = crypto.randomBytes(32).toString('base64url');
-  const st = { state: crypto.randomBytes(16).toString('base64url'), nonce: crypto.randomBytes(16).toString('base64url'), verifier, exp: Math.floor(Date.now() / 1000) + 600 };
+  const st = { state: crypto.randomBytes(16).toString('base64url'), nonce: crypto.randomBytes(16).toString('base64url'), verifier, from, exp: Math.floor(Date.now() / 1000) + 600 };
   const u = new URL(d.authorization_endpoint);
   u.search = new URLSearchParams({ response_type: 'code', client_id: OIDC.clientId, redirect_uri: OIDC.redirect, scope: 'openid email profile',
     state: st.state, nonce: st.nonce, code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
@@ -120,6 +128,6 @@ export async function oidcFinish(req, query) {
   }
   if (!email) return { error: 'The identity provider sent no e-mail address for this identity.' };
   email = String(email).toLowerCase();
-  return { email, role: roleOf(email) };
+  return { email, role: roleOf(email), from: st.from ?? 'admin' };
 }
 export const clearOidc = () => setCookie('pg_o', '', 0);

@@ -129,3 +129,12 @@ table.pg-mods .c-prefix { width: 15%; } table.pg-mods .c-owner { width: 22%; } t
 table.pg-mods .c-state { width: 12%; } table.pg-mods .c-pers { width: 10%; } table.pg-mods .c-keys { width: 7%; }
 table.pg-mods .c-last { width: 13%; } table.pg-mods .c-act { width: 200px; }
 table.pg-mods.mine { min-width: 820px; } table.pg-mods.mine .c-prefix { width: 22%; }
+
+/* View as: the banner stays in sight */
+.pg-viewing { position: sticky; top: 0; z-index: 5; background: var(--sealed-soft); border: 1px solid var(--sealed); color: var(--ink); margin-bottom: 24px; }
+.pg-viewing a { margin-left: 8px; font-weight: 600; }
+
+table.pg-accts { table-layout: fixed; width: 100%; min-width: 760px; }
+table.pg-accts td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.pg-accts .c-email { width: 34%; } table.pg-accts .c-role { width: 16%; } table.pg-accts .c-n { width: 11%; }
+table.pg-accts .c-last { width: 14%; } table.pg-accts .c-act { width: 130px; }

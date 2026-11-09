@@ -93,6 +93,13 @@ export class Passkeys {
    *  a dotless local domain (localhost) is no registrable suffix, so there each site is its own. */
   rpIdOf(origin) { return this.domain.includes('.') ? this.domain : new URL(origin).hostname; }
 
+  /** email -> number of passkeys. */
+  async owners() {
+    const raw = await this.store.redis.call('HVALS', PASSKEYS), out = new Map();
+    for (const v of raw) { const e = JSON.parse(v).email; out.set(e, (out.get(e) ?? 0) + 1); }
+    return out;
+  }
+
   async list(email) {
     const raw = await this.store.redis.call('HGETALL', PASSKEYS);
     const out = [];

@@ -22,12 +22,13 @@ done, and the facts that have already cost time.
   a field of that hash (`meta`, `dev`, `boot`, `k:<kid>`, `log`, `audit:<id>`).
   Do not spread a module over several keys. Global state is `@settings`,
   `@passkeys` (panel passkeys) and `@reserved` (reserved prefix patterns).
-- **No passwords.** Sign-in is a one-time link by e-mail, Encedo OIDC or a passkey. An address
-  has one role: in `ADMIN_EMAILS` or the panel's list (`@settings.admins`) it is an administrator and signs in at `admin.`,
-  otherwise it is an owner and signs in at `account.`, seeing only modules whose
-  `meta.email` is theirs. The link always goes to the address's own site; OIDC has
-  one callback (on `admin.`) and hands an owner on to `account.` with a one-minute
-  token, so the OIDC client needs no second redirect URI.
+- **No passwords.** Sign-in is a one-time link by e-mail, Encedo OIDC or a passkey. The site
+  decides the role: at `account.` everyone (administrators too) is an owner and sees
+  only modules whose `meta.email` is theirs; `admin.` lets in only `ADMIN_EMAILS` or
+  the panel's list (`@settings.admins`). A sign-in ends on the site it started from;
+  OIDC has one callback (on `admin.`) and hands a sign-in from `account.` back with a
+  one-minute token, so the OIDC client needs no second redirect URI. View as
+  (cookie `pg_as`) shows an owner's account to an administrator, never passkeys.
 - **Submodules, not copies.** `sdk/` is hem-sdk-js, `manager/` is encedo-manager.
   Changes to them are made in their own repositories, following their own
   CLAUDE.md; ask before pushing either.

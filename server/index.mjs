@@ -141,6 +141,8 @@ async function publicSite(req, res, url) {
 // admin.<domain> for administrators, account.<domain> for owners; one panel, two doors.
 // An address has one role (ADMIN_EMAILS or not), and its sign-in always lands on its own site.
 const siteOf = (role) => (role === 'admin' ? 'admin' : 'account');
+/** The role a session has on a site: the site decides, not the address (an administrator is an owner at account.). */
+const siteRole = (site) => (site === 'admin' ? 'admin' : 'owner');
 const siteUrl = (site, rest = '/') => `https://${site}.${DOMAIN}${rest}`;
 
 /** An administrator added or removed: the address itself is told, and so is every other administrator. */
@@ -161,58 +163,66 @@ async function panelSite(req, res, url, site) {
   if (p.startsWith('/assets/')) return assets(res, p.slice(8), url.searchParams.has('v'));
   if (p === '/login' && req.method === 'GET') return signin(200);
   if (p === '/login' && req.method === 'POST') {
-    // a sign-in link by e-mail: to an administrator, or to the owner of at least one module, each
-    // to their own site; the answer is the same either way, so the page tells nobody who is known here
+    // a sign-in link by e-mail, always to this site: admin. for an administrator; account. for anyone
+    // who owns a module, administrators too. The answer is the same either way.
     const f = await form(req);
     const email = (f.get('email') ?? '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return signin(400, { error: 'That does not look like an e-mail address.', email });
     if (auth.linkThrottled(clientIp(req))) return signin(429, { error: 'Too many links asked for from this address. Try again in 15 minutes.', email });
-    const role = auth.roleOf(email);
-    const owns = role === 'owner' && (await registry.all()).some((m) => m.email.toLowerCase() === email);
-    if (role === 'admin' || owns) {
-      const to = siteOf(role);
-      const link = siteUrl(to, `/login/link?t=${encodeURIComponent(auth.linkToken(email))}`);
-      const what = role === 'admin' ? `the playground administration at ${to}.${DOMAIN}` : `your modules at ${to}.${DOMAIN}`;
+    const isAdm = auth.isAdminEmail(email);
+    const may = site === 'admin' ? isAdm : isAdm || (await registry.all()).some((m) => m.email.toLowerCase() === email);
+    if (may) {
+      const link = siteUrl(site, `/login/link?t=${encodeURIComponent(auth.linkToken(email))}`);
+      const what = site === 'admin' ? `the playground administration at admin.${DOMAIN}` : `your modules at account.${DOMAIN}`;
       await mailer.send(email, `Sign in to the HEM Playground`, `Open this link to sign in to ${what}:\n\n${link}\n\nIt works once, within 15 minutes. If you did not ask for it, ignore this message.`).catch((e) => console.error('mail', e.message));
     }
     return html(res, 200, admin.linkSentPage(cfg, email));
   }
+  const notAdmin = `This address is not an administrator. Its modules are at account.${DOMAIN}.`;
   if (p === '/login/link') {
     const t = auth.redeemLink(url.searchParams.get('t') ?? '');
     if (!t) return signin(401, { error: 'This sign-in link has been used or is too old. Ask for a new one.' });
-    const role = auth.roleOf(t.email);
-    // a link minted before the address changed role: hand it on to the site it belongs to now
-    if (siteOf(role) !== site) return redirect(res, siteUrl(siteOf(role), `/login/link?t=${encodeURIComponent(auth.linkToken(t.email, t.via))}`));
-    return redirect(res, '/', { 'Set-Cookie': auth.sessionCookie(t.email, t.via, role) });
+    if (t.via === 'view-as') {
+      // an administrator opens an owner's account: only on account., only while still an administrator
+      if (site !== 'account' || !t.by || !auth.isAdminEmail(t.by)) return signin(401, { error: 'This link is not valid here.' });
+      return redirect(res, '/', { 'Set-Cookie': auth.viewAsCookie(t.email, t.by) });
+    }
+    if (site === 'admin' && !auth.isAdminEmail(t.email)) return signin(403, { error: notAdmin });
+    return redirect(res, '/', { 'Set-Cookie': auth.sessionCookie(t.email, t.via, siteRole(site)) });
   }
-  // OIDC has one callback, on admin.<domain>; an owner is handed on to account.<domain> from there
+  // OIDC has one callback, on admin.<domain>; a sign-in started at account. is handed back there
   if (p === '/auth/oidc') {
     if (!auth.oidcEnabled()) return redirect(res, '/login');
-    if (site !== 'admin') return redirect(res, siteUrl('admin', '/auth/oidc'));
-    const s = await auth.oidcStart();
+    if (site !== 'admin') return redirect(res, siteUrl('admin', '/auth/oidc?from=account'));
+    const s = await auth.oidcStart(url.searchParams.get('from') === 'account' ? 'account' : 'admin');
     return redirect(res, s.location, { 'Set-Cookie': s.cookie });
   }
   if (p === '/auth/callback' && site === 'admin') {
     const r = await auth.oidcFinish(req, url.searchParams).catch((e) => ({ error: `The sign-in failed: ${e.message}` }));
     if (r.error) return html(res, 401, admin.signinPage(cfg, { oidc: true, error: r.error }), { 'Set-Cookie': auth.clearOidc() });
-    if (r.role !== 'admin') return redirect(res, siteUrl('account', `/login/link?t=${encodeURIComponent(auth.linkToken(r.email, 'oidc'))}`), { 'Set-Cookie': auth.clearOidc() });
-    return redirect(res, '/', { 'Set-Cookie': [auth.sessionCookie(r.email, 'oidc', r.role), auth.clearOidc()] });
+    if (r.from === 'account') return redirect(res, siteUrl('account', `/login/link?t=${encodeURIComponent(auth.linkToken(r.email, 'oidc'))}`), { 'Set-Cookie': auth.clearOidc() });
+    if (r.role !== 'admin') return html(res, 403, admin.signinPage(cfg, { oidc: true, error: notAdmin }), { 'Set-Cookie': auth.clearOidc() });
+    return redirect(res, '/', { 'Set-Cookie': [auth.sessionCookie(r.email, 'oidc', 'admin'), auth.clearOidc()] });
   }
   if (p === '/passkey/options' && req.method === 'POST') return jsonOut(res, 200, passkeys.loginOptions(siteUrl(site)));
   if (p === '/passkey/login' && req.method === 'POST') {
-    // the role comes from the address, as for a link; signed in on the wrong site, it is handed on
+    // signs in on this site; admin. only for an administrator
     const email = await passkeys.login((await readJson(req)) ?? {}).catch((e) => ({ error: e.message }));
     if (email.error) return jsonOut(res, 400, email);
-    const role = auth.roleOf(email);
-    if (siteOf(role) !== site) return jsonOut(res, 200, { to: siteUrl(siteOf(role), `/login/link?t=${encodeURIComponent(auth.linkToken(email, 'passkey'))}`) });
-    return jsonOut(res, 200, { to: '/' }, { 'Set-Cookie': auth.sessionCookie(email, 'passkey', role) });
+    if (site === 'admin' && !auth.isAdminEmail(email)) return jsonOut(res, 403, { error: notAdmin });
+    return jsonOut(res, 200, { to: '/' }, { 'Set-Cookie': auth.sessionCookie(email, 'passkey', siteRole(site)) });
   }
   if (p === '/logout') return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });
+  if (p === '/view-as/stop') return redirect(res, siteUrl('admin', '/accounts'), { 'Set-Cookie': auth.clearViewAs() });
 
-  const sess = auth.session(req);
+  // on account., a View as cookie (an administrator looking at an owner's account) comes first
+  let sess = site === 'account' ? auth.viewAs(req) : null;
+  if (sess && !auth.isAdminEmail(sess.by)) return redirect(res, '/', { 'Set-Cookie': auth.clearViewAs() });
+  sess ??= auth.session(req);
   if (!sess) return redirect(res, '/login');
-  if (siteOf(sess.role) !== site) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });   // a cookie from before the split
-  if (auth.roleOf(sess.u) !== sess.role) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() }); // the address changed role: sign in again at its site
+  if (sess.role !== siteRole(site)) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() });   // a cookie from before roles went by site
+  if (site === 'admin' && !auth.isAdminEmail(sess.u)) return redirect(res, '/login', { 'Set-Cookie': auth.clearSession() }); // no longer an administrator
+  const viewing = sess.via === 'view-as';
   let f = null, body = null;
   if (req.method === 'POST' && (req.headers['content-type'] ?? '').startsWith('application/json')) {
     body = await readJson(req);
@@ -221,18 +231,37 @@ async function panelSite(req, res, url, site) {
     f = await form(req);
     if (f.get('csrf') !== auth.csrfToken(sess)) { res.writeHead(403, { 'Content-Type': 'text/plain' }); return res.end('The form is stale. Reload the page and try again.'); }
   }
+  // looking at someone's account is not taking it over: no passkeys, no modules on their address
+  if (viewing && (p.startsWith('/passkey') || p === '/add')) { res.writeHead(403, { 'Content-Type': 'text/plain' }); return res.end('Not while viewing someone else\'s account.'); }
   const isAdmin = sess.role === 'admin';
   const all = await registry.all();
   // an owner sees and acts on the modules registered with their e-mail, nothing else
   const mods = isAdmin ? all : all.filter((x) => x.email.toLowerCase() === sess.u.toLowerCase());
-  const adminOnly = ['/settings', '/admins', '/admins/remove', '/reserved', '/reserved/remove', '/create'];
+  const adminOnly = ['/settings', '/admins', '/admins/remove', '/reserved', '/reserved/remove', '/create', '/accounts', '/accounts/view'];
+  if (isAdmin && p === '/accounts' && req.method === 'GET') {
+    // every address the playground knows: owners of modules, administrators, holders of passkeys
+    const pk = await passkeys.owners();
+    const acc = new Map();
+    const row = (e) => { e = e.toLowerCase(); if (!acc.has(e)) acc.set(e, { email: e, modules: 0, last: 0, passkeys: pk.get(e) ?? 0, admin: auth.isAdminEmail(e) }); return acc.get(e); };
+    for (const m of all) { const r = row(m.email); r.modules++; r.last = Math.max(r.last, m.lastReq || 0); }
+    for (const e of auth.adminEmails()) row(e);
+    for (const e of pk.keys()) row(e);
+    return html(res, 200, admin.accountsPage(cfg, sess, [...acc.values()], url.searchParams, { count: mods.length }));
+  }
+  if (isAdmin && p === '/accounts/view' && f) {
+    // View as: the other administrators are told; the owner is not
+    const email = (f.get('email') ?? '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect(res, '/accounts');
+    for (const to of auth.adminEmails()) if (to !== sess.u.toLowerCase()) await mailer.send(to, `View as: ${sess.u} opened ${email}`, `${sess.u} opened the account of ${email} at account.${DOMAIN}, for an hour at most.\n\nThe owner is not told.`).catch((e) => console.error('mail', e.message));
+    return redirect(res, siteUrl('account', `/login/link?t=${encodeURIComponent(auth.linkToken(email, 'view-as', sess.u))}`));
+  }
   // passkeys: every signed-in address manages its own
   if (p === '/passkeys' && req.method === 'GET') return html(res, 200, admin.passkeysPage(cfg, sess, await passkeys.list(sess.u), { count: mods.length, script: PASSKEY_JS }));
   if (p === '/passkey/new' && body) return jsonOut(res, 200, await passkeys.registerOptions(sess.u, siteUrl(site)));
   if (p === '/passkey/add' && body) {
     const r = await passkeys.register(sess.u, body, body.name).catch((e) => ({ error: e.message }));
     if (r.error) return jsonOut(res, 400, r);
-    await mailer.send(sess.u, 'A passkey was added to your HEM Playground sign-in', `A passkey (${r.name}) can now sign in as ${sess.u} at ${siteUrl(siteOf(sess.role))}.\n\nIf it was not you, sign in with a link and remove it under Passkeys.`).catch((e) => console.error('mail', e.message));
+    await mailer.send(sess.u, 'A passkey was added to your HEM Playground sign-in', `A passkey (${r.name}) can now sign in as ${sess.u} on the HEM Playground.\n\nIf it was not you, sign in with a link and remove it under Passkeys.`).catch((e) => console.error('mail', e.message));
     return jsonOut(res, 200, { ok: true });
   }
   if (p === '/passkey/remove' && f) {

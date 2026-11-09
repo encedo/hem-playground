@@ -45,7 +45,7 @@ export function modulesPage(cfg, sess, mods, query, create = {}) {
   const head = owner ? (mods.length === 0 ? 'No module is registered with your address.' : mods.length === 1 ? 'One module is yours.' : `${word(mods.length, true)} modules are yours.`)
     : mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
   const room = !(cfg.modulesPerEmail > 0 && mods.length >= cfg.modulesPerEmail);
-  const lede = owner ? (mods.length ? `Open one to reboot it, put it back in its box or give its prefix up.${room ? ' Add another under the list.' : ''}` : 'Add one under the list.')
+  const lede = owner ? (mods.length ? `Open one to reboot it, put it back in its box or give its prefix up.${room && !sess.by ? ' Add another under the list.' : ''}` : 'Add one under the list.')
     : mods.length === 0 ? `The first one appears here as soon as someone registers at ${esc(cfg.domain)}.`
     : `${word(counts.active, true)} ${plural(counts.active, 'answers', 'answer')} requests${counts.blocked ? `, ${word(counts.blocked)} ${plural(counts.blocked, 'is', 'are')} blocked` : ''}${counts.unconfirmed ? `, ${word(counts.unconfirmed)} ${plural(counts.unconfirmed, 'waits', 'wait')} for an e-mail to be confirmed` : ''}. Registration is ${esc(MODE_LABEL[cfg.mode])}.`;
   const seg = (key, label) => `<a href="${esc(href({ state: key }))}"${filter === key ? ' class="on"' : ''}>${label} ${counts[key]}</a>`;
@@ -64,12 +64,12 @@ ${waiting.map((m) => `<tr><td class="mono">${esc(m.prefix)}</td><td class="mono"
 <div class="seg" role="group" aria-label="Filter by state">${seg('all', 'All')}${seg('active', 'Active')}${seg('pending', 'Waiting')}${seg('blocked', 'Blocked')}${counts.unconfirmed ? seg('unconfirmed', 'Unconfirmed') : ''}</div></form>
 ${shown.length ? `<div class="table-wrap"><table class="pg-mods${owner ? ' mine' : ''}"><colgroup><col class="c-prefix">${owner ? '' : '<col class="c-owner">'}<col class="c-variant"><col class="c-state"><col class="c-pers"><col class="c-keys"><col class="c-last"><col class="c-act"></colgroup><thead><tr>${th('prefix', 'Prefix')}${owner ? '' : th('owner', 'Owner')}${th('variant', 'Variant')}${th('state', 'State')}${th('personalised', 'Personalised')}${th('keys', 'Keys')}${th('last', 'Last request')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="card-body"><p class="soft">${mods.length ? 'Nothing matches.' : 'Nothing registered yet.'}</p></div>`}
-${owner ? addRow(cfg, sess, mods, create) : ''}
+${owner && !sess.by ? addRow(cfg, sess, mods, create) : ''}
 <div class="card-foot pg-pager"><span>${shown.length ? `${(page - 1) * per + 1}–${(page - 1) * per + onPage.length} of ${shown.length}` : '0'}${shown.length !== mods.length ? ` (${mods.length} in all)` : ''}${sort === 'last' && dir === 'desc' ? ', newest request first' : ''}</span>
 <span class="pg-per">Per page ${[10, 30, 50].map((n) => n === per ? `<b>${n}</b>` : `<a href="${esc(href({ per: String(n), page: '1' }))}">${n}</a>`).join(' ')}</span>
 ${pages > 1 ? `<span class="pg-nav">${page > 1 ? `<a class="button small plain" href="${esc(href({ page: String(page - 1) }))}" rel="prev">Previous</a>` : '<span class="button small plain" aria-disabled="true">Previous</span>'}<span class="pg-of">${page} / ${pages}</span>${page < pages ? `<a class="button small plain" href="${esc(href({ page: String(page + 1) }))}" rel="next">Next</a>` : '<span class="button small plain" aria-disabled="true">Next</span>'}</span>` : ''}</div></section>
 ${owner ? '' : createCard(cfg, sess, create)}`;
-  return adminShell(cfg, 'modules', main, { count: mods.length, user: sess.u, role: sess.role, script: owner ? prefixScript('a-prefix', 'a-hint') : prefixScript('c-prefix', 'c-hint') });
+  return adminShell(cfg, 'modules', main, { count: mods.length, user: sess.u, role: sess.role, viewing: sess.by, script: owner ? prefixScript('a-prefix', 'a-hint') : prefixScript('c-prefix', 'c-hint') });
 }
 
 export function modulePage(cfg, sess, m, { dev, boot, log, keys, statusJson, count }) {
@@ -110,7 +110,7 @@ ${reqs.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>T
 ${reqs.slice(0, 50).map((r) => `<tr><td class="mono">${new Date(r.t * 1000).toISOString().slice(11, 19)}</td><td class="mono">${esc(r.m)}</td><td class="mono">${esc(r.p)}</td><td class="mono${r.s >= 400 ? ' err' : ''}">${r.s}</td><td class="mono">${r.ms}</td><td class="mono">${esc(r.o || '—')}</td></tr>`).join('')}
 </tbody></table></div>` : '<div class="card-body"><p class="soft">No request yet.</p></div>'}
 <div class="card-foot"><span>${Math.min(50, reqs.length)} of ${reqs.length}</span><a href="/m/${esc(p)}/log.jsonl">Download as JSON lines</a></div></section>`;
-  return adminShell(cfg, 'modules', main, { count, user: sess.u, role: sess.role });
+  return adminShell(cfg, 'modules', main, { count, user: sess.u, role: sess.role, viewing: sess.by });
 }
 
 /** Administrators: the .env's (fixed) and those added here, each removable. */
@@ -159,7 +159,7 @@ ${num('idleDays', 'Delete after idle days', '0 keeps modules for ever.')}${num('
 <div class="row"><button class="button" type="submit">Save the settings</button><a class="button plain" href="/settings">Discard changes</a></div>
 </form>
 ${adminsCard(csrf, envAdmins, s.admins ?? [], sess.u, adminError, adminValue)}`;
-  return adminShell(cfg, 'settings', main, { count, user: sess.u, role: sess.role });
+  return adminShell(cfg, 'settings', main, { count, user: sess.u, role: sess.role, viewing: sess.by });
 }
 
 export { signinPage, linkSentPage };
@@ -202,7 +202,7 @@ ${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Pattern</th><th>
 <section class="card"><div class="card-head"><span>Held by the playground</span><span class="v">fixed</span></div>
 <div class="card-body"><p class="soft">The sites and the DNS names of the certificate. They can not be released or given out.</p>
 <p class="mono pg-taglist">${SYSTEM_RESERVED.map(esc).join(' · ')}</p></div></section>`;
-  return adminShell(cfg, 'reserved', main, { count, user: sess.u, role: sess.role });
+  return adminShell(cfg, 'reserved', main, { count, user: sess.u, role: sess.role, viewing: sess.by });
 }
 
 /**
@@ -254,8 +254,48 @@ ${keys.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>D
 <div class="card-body stack-s"><div><button class="button" type="button" id="pk-add">Add a passkey on this device</button></div>
 <p class="notice risk" id="pk-note" hidden></p>
 <p class="hint">Each change is mailed to ${esc(sess.u)}.</p></div></section>`;
-  return adminShell(cfg, 'passkeys', main, { count, user: sess.u, role: sess.role, script: `${script}
+  return adminShell(cfg, 'passkeys', main, { count, user: sess.u, role: sess.role, viewing: sess.by, script: `${script}
 const b = document.getElementById('pk-add'), n = document.getElementById('pk-note');
 if (!window.PublicKeyCredential) { b.disabled = true; n.textContent = 'This browser cannot make passkeys.'; n.hidden = false; }
 b.onclick = () => pkAdd(${JSON.stringify(csrf)}, n);` });
+}
+
+/** Accounts: every address the playground knows, and a way to see the playground as its owner does. */
+export function accountsPage(cfg, sess, accounts, query, { count }) {
+  const csrf = auth.csrfToken(sess);
+  const q = (query.get('q') ?? '').trim().toLowerCase();
+  const SORTS = { email: (a) => a.email, role: (a) => (a.admin ? 0 : 1), modules: (a) => a.modules, passkeys: (a) => a.passkeys, last: (a) => a.last };
+  const sort = SORTS[query.get('sort')] ? query.get('sort') : 'email';
+  const dir = ['asc', 'desc'].includes(query.get('dir')) ? query.get('dir') : 'asc';
+  const by = SORTS[sort], sign = dir === 'asc' ? 1 : -1;
+  const shown = accounts.filter((a) => !q || a.email.includes(q))
+    .sort((a, b) => { const x = by(a), y = by(b); return (x < y ? -1 : x > y ? 1 : 0) * sign || a.email.localeCompare(b.email); });
+  const per = [10, 30, 50].includes(Number(query.get('per'))) ? Number(query.get('per')) : 10;
+  const pages = Math.max(1, Math.ceil(shown.length / per));
+  const page = Math.min(pages, Math.max(1, Number.parseInt(query.get('page'), 10) || 1));
+  const onPage = shown.slice((page - 1) * per, page * per);
+  const href = (o) => {
+    const u = new URLSearchParams({ ...(q ? { q } : {}), per: String(per), sort, dir, ...o });
+    if (u.get('per') === '10') u.delete('per'); if (u.get('page') === '1') u.delete('page');
+    if (u.get('sort') === 'email' && u.get('dir') === 'asc') { u.delete('sort'); u.delete('dir'); }
+    const s = u.toString(); return s ? `/accounts?${s}` : '/accounts';
+  };
+  const th = (key, label) => {
+    const on = sort === key, next = on ? (dir === 'asc' ? 'desc' : 'asc') : ['modules', 'passkeys', 'last'].includes(key) ? 'desc' : 'asc';
+    return `<th class="sortable"${on ? ` aria-sort="${dir === 'asc' ? 'ascending' : 'descending'}"` : ''}><a href="${esc(href({ sort: key, dir: next, page: '1' }))}">${label}<span class="arrow"${on ? '' : ' aria-hidden="true"'}>${on && dir === 'asc' ? '▲' : '▼'}</span></a></th>`;
+  };
+  const rows = onPage.map((a) => `<tr><td class="mono" title="${esc(a.email)}">${esc(a.email)}${a.email === sess.u.toLowerCase() ? ' <span class="soft">(you)</span>' : ''}</td>
+<td>${a.admin ? 'Administrator' : 'Owner'}</td><td class="mono">${a.modules ? `<a href="/?q=${encodeURIComponent(a.email)}">${a.modules}</a>` : '0'}</td><td class="mono">${a.passkeys}</td><td class="mono">${ago(a.last)}</td>
+<td><div class="acts"><form method="post" action="/accounts/view" target="_blank"><input type="hidden" name="csrf" value="${esc(csrf)}"><input type="hidden" name="email" value="${esc(a.email)}"><button class="button small plain" type="submit">View as</button></form></div></td></tr>`).join('');
+  const admins = accounts.filter((a) => a.admin).length;
+  const main = `<div class="page-head"><p class="eyebrow">Accounts</p><h1>${word(accounts.length, true)} ${plural(accounts.length, 'address', 'addresses')}, ${word(admins)} of them ${plural(admins, 'an administrator', 'administrators')}.</h1>
+<p>Every address that owns a module, holds a passkey or runs the playground. An administrator is an owner at account.${esc(cfg.domain)} too. View as opens that page as its owner sees it, for an hour, in a new tab: the modules can be acted on, passkeys and new modules are not offered. The other administrators are told; the owner is not.</p></div>
+<section class="card"><div class="card-head"><span>All accounts</span><span class="v">${accounts.length}</span></div>
+<form class="toolbar" method="get" action="/accounts"><input type="search" name="q" value="${esc(q)}" placeholder="E-mail" aria-label="Search accounts">${per !== 10 ? `<input type="hidden" name="per" value="${per}">` : ''}${sort !== 'email' || dir !== 'asc' ? `<input type="hidden" name="sort" value="${sort}"><input type="hidden" name="dir" value="${dir}">` : ''}</form>
+${shown.length ? `<div class="table-wrap"><table class="pg-accts"><colgroup><col class="c-email"><col class="c-role"><col class="c-n"><col class="c-n"><col class="c-last"><col class="c-act"></colgroup><thead><tr>${th('email', 'Address')}${th('role', 'Role')}${th('modules', 'Modules')}${th('passkeys', 'Passkeys')}${th('last', 'Last request')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<div class="card-body"><p class="soft">${accounts.length ? 'Nothing matches.' : 'No accounts yet.'}</p></div>`}
+<div class="card-foot pg-pager"><span>${shown.length ? `${(page - 1) * per + 1}–${(page - 1) * per + onPage.length} of ${shown.length}` : '0'}${shown.length !== accounts.length ? ` (${accounts.length} in all)` : ''}</span>
+<span class="pg-per">Per page ${[10, 30, 50].map((n) => n === per ? `<b>${n}</b>` : `<a href="${esc(href({ per: String(n), page: '1' }))}">${n}</a>`).join(' ')}</span>
+${pages > 1 ? `<span class="pg-nav">${page > 1 ? `<a class="button small plain" href="${esc(href({ page: String(page - 1) }))}" rel="prev">Previous</a>` : '<span class="button small plain" aria-disabled="true">Previous</span>'}<span class="pg-of">${page} / ${pages}</span>${page < pages ? `<a class="button small plain" href="${esc(href({ page: String(page + 1) }))}" rel="next">Next</a>` : '<span class="button small plain" aria-disabled="true">Next</span>'}</span>` : ''}</div></section>`;
+  return adminShell(cfg, 'accounts', main, { count, user: sess.u, role: sess.role });
 }
