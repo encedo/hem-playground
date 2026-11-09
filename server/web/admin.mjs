@@ -40,7 +40,7 @@ export function modulesPage(cfg, sess, mods, query, create = {}) {
   // a header sorts by its column; again, the other way round. Numbers and dates start from the most.
   const th = (key, label) => {
     const on = sort === key, next = on ? (dir === 'asc' ? 'desc' : 'asc') : ['keys', 'last'].includes(key) ? 'desc' : 'asc';
-    return `<th class="sortable"${on ? ` aria-sort="${dir === 'asc' ? 'ascending' : 'descending'}"` : ''}><a href="${esc(href({ sort: key, dir: next, page: '1' }))}">${label}${on ? ` <span class="arrow">${dir === 'asc' ? '▲' : '▼'}</span>` : ''}</a></th>`;
+    return `<th class="sortable"${on ? ` aria-sort="${dir === 'asc' ? 'ascending' : 'descending'}"` : ''}><a href="${esc(href({ sort: key, dir: next, page: '1' }))}">${label}<span class="arrow"${on ? '' : ' aria-hidden="true"'}>${on && dir === 'asc' ? '▲' : '▼'}</span></a></th>`;
   };
   const head = owner ? (mods.length === 0 ? 'No module is registered with your address.' : mods.length === 1 ? 'One module is yours.' : `${word(mods.length, true)} modules are yours.`)
     : mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
@@ -55,14 +55,14 @@ ${waiting.map((m) => `<tr><td class="mono">${esc(m.prefix)}</td><td class="mono"
 <td><div class="acts">${actForm(m.prefix, 'approve', 'Approve', csrf, '')}${actForm(m.prefix, 'reject', 'Reject', csrf)}</div></td></tr>`).join('')}
 </tbody></table></div></section>` : '';
   // an owner's modules are all theirs: no Owner column for them
-  const rows = onPage.map((m) => `<tr><td class="mono"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td>${owner ? '' : `<td class="mono">${esc(m.email)}</td>`}<td class="mono">${esc(m.variant)}</td>
+  const rows = onPage.map((m) => `<tr><td class="mono" title="${esc(m.prefix)}"><a href="/m/${esc(m.prefix)}">${esc(m.prefix)}</a></td>${owner ? '' : `<td class="mono" title="${esc(m.email)}">${esc(m.email)}</td>`}<td class="mono">${esc(m.variant)}</td>
 <td>${pill(m.state)}</td><td>${m.inited ? 'Yes' : 'Not yet'}</td><td class="mono">${m.keys}</td><td class="mono">${ago(m.lastReq)}</td>
 <td><div class="acts">${m.state === 'active' ? `<a class="button small plain" href="${esc(managerUrl(cfg, m.prefix))}">Open in the Manager</a>` : ''}</div></td></tr>`).join('');
   const main = `<div class="page-head"><p class="eyebrow">Modules</p><h1>${head}</h1><p>${lede}</p></div>${needs}
 <section class="card"><div class="card-head"><span>All modules</span><span class="v">${mods.length}</span></div>
 <form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="${owner ? 'Prefix' : 'Prefix or e-mail'}" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">${sort !== 'last' || dir !== 'desc' ? `<input type="hidden" name="sort" value="${sort}"><input type="hidden" name="dir" value="${dir}">` : ''}${per !== 10 ? `<input type="hidden" name="per" value="${per}">` : ''}
 <div class="seg" role="group" aria-label="Filter by state">${seg('all', 'All')}${seg('active', 'Active')}${seg('pending', 'Waiting')}${seg('blocked', 'Blocked')}${counts.unconfirmed ? seg('unconfirmed', 'Unconfirmed') : ''}</div></form>
-${shown.length ? `<div class="table-wrap"><table><thead><tr>${th('prefix', 'Prefix')}${owner ? '' : th('owner', 'Owner')}${th('variant', 'Variant')}${th('state', 'State')}${th('personalised', 'Personalised')}${th('keys', 'Keys')}${th('last', 'Last request')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+${shown.length ? `<div class="table-wrap"><table class="pg-mods${owner ? ' mine' : ''}"><colgroup><col class="c-prefix">${owner ? '' : '<col class="c-owner">'}<col class="c-variant"><col class="c-state"><col class="c-pers"><col class="c-keys"><col class="c-last"><col class="c-act"></colgroup><thead><tr>${th('prefix', 'Prefix')}${owner ? '' : th('owner', 'Owner')}${th('variant', 'Variant')}${th('state', 'State')}${th('personalised', 'Personalised')}${th('keys', 'Keys')}${th('last', 'Last request')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="card-body"><p class="soft">${mods.length ? 'Nothing matches.' : 'Nothing registered yet.'}</p></div>`}
 ${owner ? addRow(cfg, sess, mods, create) : ''}
 <div class="card-foot pg-pager"><span>${shown.length ? `${(page - 1) * per + 1}–${(page - 1) * per + onPage.length} of ${shown.length}` : '0'}${shown.length !== mods.length ? ` (${mods.length} in all)` : ''}${sort === 'last' && dir === 'desc' ? ', newest request first' : ''}</span>

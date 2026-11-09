@@ -119,3 +119,13 @@ th.sortable a { display: flex; align-items: center; gap: 6px; padding: 14px 20px
 .card th.sortable, .card th.sortable:first-child { padding: 0; }
 .card th.sortable:first-child a { padding-left: 24px; }
 th.sortable a:hover, th[aria-sort] a { color: var(--ink); }
+
+/* the modules table keeps its columns whatever the order or the page: fixed layout, the arrow's room kept */
+th.sortable .arrow { visibility: hidden; }
+th[aria-sort] .arrow { visibility: visible; }
+table.pg-mods { table-layout: fixed; width: 100%; min-width: 980px; }
+table.pg-mods td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.pg-mods .c-prefix { width: 15%; } table.pg-mods .c-owner { width: 22%; } table.pg-mods .c-variant { width: 9%; }
+table.pg-mods .c-state { width: 12%; } table.pg-mods .c-pers { width: 10%; } table.pg-mods .c-keys { width: 7%; }
+table.pg-mods .c-last { width: 13%; } table.pg-mods .c-act { width: 200px; }
+table.pg-mods.mine { min-width: 820px; } table.pg-mods.mine .c-prefix { width: 22%; }
