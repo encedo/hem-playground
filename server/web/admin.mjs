@@ -18,15 +18,30 @@ export function modulesPage(cfg, sess, mods, query, create = {}) {
   const counts = { all: mods.length, active: mods.filter((m) => m.state === 'active').length, pending: waiting.length, blocked: mods.filter((m) => m.state === 'blocked').length, unconfirmed: mods.filter((m) => m.state === 'unconfirmed').length };
   const filter = ['active', 'pending', 'blocked', 'unconfirmed'].includes(query.get('state')) ? query.get('state') : 'all';
   const q = (query.get('q') ?? '').trim().toLowerCase();
+  // sorting by a column: ?sort=<column>&dir=asc|desc; by default the newest request first
+  const SORTS = { prefix: (m) => m.prefix, owner: (m) => m.email.toLowerCase(), variant: (m) => m.variant, state: (m) => m.state, personalised: (m) => (m.inited ? 1 : 0), keys: (m) => m.keys, last: (m) => m.lastReq || m.created };
+  const sort = SORTS[query.get('sort')] ? query.get('sort') : 'last';
+  const dir = ['asc', 'desc'].includes(query.get('dir')) ? query.get('dir') : sort === 'last' ? 'desc' : 'asc';
+  const by = SORTS[sort], sign = dir === 'asc' ? 1 : -1;
   const shown = mods.filter((m) => (filter === 'all' || m.state === filter) && (!q || m.prefix.includes(q) || m.email.toLowerCase().includes(q)))
-    .sort((a, b) => (b.lastReq || b.created) - (a.lastReq || a.created));
+    .sort((a, b) => { const x = by(a), y = by(b); return (x < y ? -1 : x > y ? 1 : 0) * sign || a.prefix.localeCompare(b.prefix); });
   const owner = sess.role !== 'admin';
   // pages of 10, 30 or 50; the search, the filter and the page size travel in every link
   const per = [10, 30, 50].includes(Number(query.get('per'))) ? Number(query.get('per')) : 10;
   const pages = Math.max(1, Math.ceil(shown.length / per));
   const page = Math.min(pages, Math.max(1, Number.parseInt(query.get('page'), 10) || 1));
   const onPage = shown.slice((page - 1) * per, page * per);
-  const href = (o) => { const u = new URLSearchParams({ state: filter, ...(q ? { q } : {}), per: String(per), ...o }); if (u.get('per') === '10') u.delete('per'); if (u.get('state') === 'all') u.delete('state'); if (u.get('page') === '1') u.delete('page'); const s = u.toString(); return s ? `/?${s}` : '/'; };
+  const href = (o) => {
+    const u = new URLSearchParams({ state: filter, ...(q ? { q } : {}), per: String(per), sort, dir, ...o });
+    if (u.get('per') === '10') u.delete('per'); if (u.get('state') === 'all') u.delete('state'); if (u.get('page') === '1') u.delete('page');
+    if (u.get('sort') === 'last' && u.get('dir') === 'desc') { u.delete('sort'); u.delete('dir'); }
+    const s = u.toString(); return s ? `/?${s}` : '/';
+  };
+  // a header sorts by its column; again, the other way round. Numbers and dates start from the most.
+  const th = (key, label) => {
+    const on = sort === key, next = on ? (dir === 'asc' ? 'desc' : 'asc') : ['keys', 'last'].includes(key) ? 'desc' : 'asc';
+    return `<th class="sortable"${on ? ` aria-sort="${dir === 'asc' ? 'ascending' : 'descending'}"` : ''}><a href="${esc(href({ sort: key, dir: next, page: '1' }))}">${label}${on ? ` <span class="arrow">${dir === 'asc' ? '▲' : '▼'}</span>` : ''}</a></th>`;
+  };
   const head = owner ? (mods.length === 0 ? 'No module is registered with your address.' : mods.length === 1 ? 'One module is yours.' : `${word(mods.length, true)} modules are yours.`)
     : mods.length === 0 ? 'No modules yet.' : `${word(mods.length, true)} ${plural(mods.length, 'module', 'modules')}${waiting.length ? `, ${word(waiting.length)} waiting for you` : ''}.`;
   const room = !(cfg.modulesPerEmail > 0 && mods.length >= cfg.modulesPerEmail);
@@ -45,12 +60,12 @@ ${waiting.map((m) => `<tr><td class="mono">${esc(m.prefix)}</td><td class="mono"
 <td><div class="acts">${m.state === 'active' ? `<a class="button small plain" href="${esc(managerUrl(cfg, m.prefix))}">Open in the Manager</a>` : ''}</div></td></tr>`).join('');
   const main = `<div class="page-head"><p class="eyebrow">Modules</p><h1>${head}</h1><p>${lede}</p></div>${needs}
 <section class="card"><div class="card-head"><span>All modules</span><span class="v">${mods.length}</span></div>
-<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="${owner ? 'Prefix' : 'Prefix or e-mail'}" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">${per !== 10 ? `<input type="hidden" name="per" value="${per}">` : ''}
+<form class="toolbar" method="get" action="/"><input type="search" name="q" value="${esc(q)}" placeholder="${owner ? 'Prefix' : 'Prefix or e-mail'}" aria-label="Search modules"><input type="hidden" name="state" value="${esc(filter)}">${sort !== 'last' || dir !== 'desc' ? `<input type="hidden" name="sort" value="${sort}"><input type="hidden" name="dir" value="${dir}">` : ''}${per !== 10 ? `<input type="hidden" name="per" value="${per}">` : ''}
 <div class="seg" role="group" aria-label="Filter by state">${seg('all', 'All')}${seg('active', 'Active')}${seg('pending', 'Waiting')}${seg('blocked', 'Blocked')}${counts.unconfirmed ? seg('unconfirmed', 'Unconfirmed') : ''}</div></form>
-${shown.length ? `<div class="table-wrap"><table><thead><tr><th>Prefix</th>${owner ? '' : '<th>Owner</th>'}<th>Variant</th><th>State</th><th>Personalised</th><th>Keys</th><th>Last request</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+${shown.length ? `<div class="table-wrap"><table><thead><tr>${th('prefix', 'Prefix')}${owner ? '' : th('owner', 'Owner')}${th('variant', 'Variant')}${th('state', 'State')}${th('personalised', 'Personalised')}${th('keys', 'Keys')}${th('last', 'Last request')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="card-body"><p class="soft">${mods.length ? 'Nothing matches.' : 'Nothing registered yet.'}</p></div>`}
 ${owner ? addRow(cfg, sess, mods, create) : ''}
-<div class="card-foot pg-pager"><span>${shown.length ? `${(page - 1) * per + 1}–${(page - 1) * per + onPage.length} of ${shown.length}` : '0'}${shown.length !== mods.length ? ` (${mods.length} in all)` : ''}, newest request first</span>
+<div class="card-foot pg-pager"><span>${shown.length ? `${(page - 1) * per + 1}–${(page - 1) * per + onPage.length} of ${shown.length}` : '0'}${shown.length !== mods.length ? ` (${mods.length} in all)` : ''}${sort === 'last' && dir === 'desc' ? ', newest request first' : ''}</span>
 <span class="pg-per">Per page ${[10, 30, 50].map((n) => n === per ? `<b>${n}</b>` : `<a href="${esc(href({ per: String(n), page: '1' }))}">${n}</a>`).join(' ')}</span>
 ${pages > 1 ? `<span class="pg-nav">${page > 1 ? `<a class="button small plain" href="${esc(href({ page: String(page - 1) }))}" rel="prev">Previous</a>` : '<span class="button small plain" aria-disabled="true">Previous</span>'}<span class="pg-of">${page} / ${pages}</span>${page < pages ? `<a class="button small plain" href="${esc(href({ page: String(page + 1) }))}" rel="next">Next</a>` : '<span class="button small plain" aria-disabled="true">Next</span>'}</span>` : ''}</div></section>
 ${owner ? '' : createCard(cfg, sess, create)}`;
@@ -84,7 +99,7 @@ export function modulePage(cfg, sess, m, { dev, boot, log, keys, statusJson, cou
 <div class="act"><div><h2>Raw status</h2><p>What GET /api/system/status and /version answer now.</p></div><a class="button plain" href="/m/${esc(p)}/status.json">Show JSON</a></div>
 ${m.state === 'pending' && sess.role === 'admin' ? `<div class="act"><div><h2>Approve</h2><p>The module starts answering at once.</p></div>${actForm(p, 'approve', 'Approve', csrf, '')}</div>` : ''}
 </section>
-<section class="card"><div class="card-head"><span>Change its state</span></div>
+<section class="card pg-state"><div class="card-head"><span>Change its state</span></div>
 <div class="act"><div><h2>Reboot</h2><p>New session key: every token issued so far stops working, as after a power cycle.</p></div>${actForm(p, 'reboot', 'Reboot', csrf)}</div>
 ${sess.role === 'admin' ? `<div class="act"><div><h2>${block[1]}</h2><p>${block[2]}</p></div>${actForm(p, block[0], block[1], csrf)}</div>` : ''}
 <div class="act"><div><h2>Reset to the box</h2><p class="risk">Keys, settings and logs are erased; the address stays and the module waits to be personalised again.</p></div>${actForm(p, 'reset', 'Reset', csrf, 'exposed')}</div>
