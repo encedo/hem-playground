@@ -69,6 +69,7 @@ const ASSET_FILES = { 'manager.css': path.join(MANAGER_DIR, 'app', 'style.css'),
   const h = crypto.createHash('sha256');
   for (const f of Object.values(ASSET_FILES)) h.update(await fs.readFile(f).catch(() => ''));
   ui.setAssetVersion(h.digest('hex').slice(0, 12));
+  ui.setBuild(process.env.PG_VERSION, process.env.PG_COMMIT);
 }
 
 async function assets(res, rel, versioned = false) {

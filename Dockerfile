@@ -2,6 +2,10 @@
 FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production PORT=8080 MANAGER_DIR=/app/manager
+# what the sign-in page and the public footer show: v1.0.0 (a6bb741), given by deploy/deploy.sh
+ARG PG_VERSION=
+ARG PG_COMMIT=
+ENV PG_VERSION=$PG_VERSION PG_COMMIT=$PG_COMMIT
 # openssl 3.5: HashML-DSA and external mu (node:crypto has pure ML-DSA only)
 RUN apk add --no-cache openssl
 COPY server ./server

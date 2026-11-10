@@ -11,6 +11,17 @@ let assetV = '0';
 /** The style sheets' version, a hash of their content (set by the server at start). */
 export const setAssetVersion = (v) => { assetV = v; };
 
+let build = 'development build';
+/**
+ * What this server was built from, as Onchato shows it: `v1.0.0 (a6bb741)`. Both come in as
+ * build arguments (deploy/deploy.sh); a commit with `+` was built from a tree with changes.
+ */
+export function setBuild(version, commit) {
+  const v = /^v?\d+\.\d+\.\d+[0-9A-Za-z.+-]*$/.test(version ?? '') ? version.replace(/^v?/, 'v') : null;
+  const c = /^[0-9a-f]{7,40}\+?$/.test(commit ?? '') ? commit.replace(/^([0-9a-f]{7})[0-9a-f]*/, '$1') : null;
+  if (v || c) build = [v, c && `(${c})`].filter(Boolean).join(' ');
+}
+
 export function doc(title, body, { script = '' } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><link rel="icon" href="/assets/favicon.svg?v=${assetV}"><link rel="stylesheet" href="/assets/manager.css?v=${assetV}"><link rel="stylesheet" href="/assets/pg.css?v=${assetV}"></head>
@@ -47,7 +58,7 @@ function publicShell(cfg, main) {
   return `<header class="pg-top"><div class="masthead pg-wrap"><a class="pg-brand" href="/">${MARK}<b>HEM Playground</b><span>${esc(cfg.domain)}</span></a>
 <nav class="row"><a href="https://account.${esc(cfg.domain)}/">Your modules</a><a href="https://docs.encedo.com/hem-api">API reference</a><a href="https://github.com/encedo/hem-sdk-js">hem-sdk-js</a></nav></div></header>
 <main class="pg-wrap pg-main">${main}</main>
-<footer class="note pg-foot">Encedo HEM Playground · a test environment · nothing here is a real module</footer>`;
+<footer class="note pg-foot">Encedo HEM Playground ${esc(build)} · a test environment · nothing here is a real module</footer>`;
 }
 
 export function registerPage(cfg, { values = {}, error = null } = {}) {
@@ -127,7 +138,7 @@ if (window.PublicKeyCredential) { document.getElementById('pk-go').hidden = fals
 export function signinPage(cfg, { error = null, oidc = true, email = '' } = {}) {
   const adm = cfg.site === 'admin';
   return doc('Sign in', `<div class="app centered"><div class="signin">
-<div class="brand">${MARK}<div class="name"><b>${adm ? 'Playground admin' : 'HEM Playground'}</b></div></div>
+<div class="brand">${MARK}<div class="name"><b>${adm ? 'Playground admin' : 'HEM Playground'}</b><span class="pg-build">${esc(build)}</span></div></div>
 <form class="card lifted" method="post" action="/login"><div class="card-head"><span>${adm ? 'Administration' : 'Your modules'}</span><span class="v">Signed out</span></div>
 <div class="card-body"><p class="eyebrow">Sign in</p><h1>${adm ? 'Sign in to run the playground.' : 'Sign in to see your virtual modules.'}</h1>
 ${error ? `<p class="notice risk">${esc(error)}</p>` : ''}
