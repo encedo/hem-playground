@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import { b64, unb64, jwtParse, jwtVerify, jwtSign, x25519, hmac, isPrintable } from './codec.mjs';
 import { fail, validScope, scopes } from './http.mjs';
-import { issueNonce, nonceValid, LOG } from './device.mjs';
+import { issueNonce, nonceValid, uptime, LOG } from './device.mjs';
 import { genuineToken } from './attest.mjs';
 import { typeCode, record } from './keys.mjs';
 import { tlsRecords } from './tls.mjs';
@@ -33,8 +33,10 @@ function verifySigned(ctx, token, devPriv) {
   if (!key) fail(401);
   const pl = jwtVerify(p, key, ctx.now);                 // exp / nbf checked when present
   if (!pl) fail(401);
-  if (unb64(pl.jti)?.length !== 32 || !nonceValid(ctx.boot, pl.jti, true)) fail(401);
+  const n = unb64(pl.jti)?.length === 32 ? nonceValid(ctx.boot, pl.jti, true) : null;
+  if (!n) fail(401);
   ctx.touch('boot');
+  Object.defineProperty(pl, 'nonce', { value: n });      // what the nonce was issued with (DEV-511: upt)
   return pl;
 }
 
@@ -232,7 +234,7 @@ export async function extRequest(ctx) {
       break;
     }
   }
-  const jti = issueNonce(ctx.boot, 86400);
+  const jti = issueNonce(ctx.boot, 86400, { upt: uptime(ctx.boot) });   // DEV-511: an ext login starts here
   const sealed = {};
   for (const { k, pid } of (await pairedApps(ctx)).slice(0, 8)) sealed[pid] = sealScope(eidPriv(ctx), Buffer.from(k.pub, 'base64'), Buffer.from(jti, 'base64'), Buffer.from(text));
   const claims = { iss: ctx.dev.eid.pub, aud: b.epk, iat: ctx.now, exp: ctx.now + life, jti, scope: sealed };
@@ -265,7 +267,8 @@ export async function extToken(ctx) {
     const vals = text.toString().split('#')[0].split(' ').filter(Boolean);
     if (!vals.length) fail(406);
     const exp = typeof pl.exp === 'number' && pl.exp > 0 ? pl.exp : ctx.now + 60;
-    const token = ctx.issueToken({ scope: vals.length === 1 ? vals[0] : vals, sub: b64(Buffer.from(app.k.kid, 'hex')), exp, ctx: pl.ctx });
+    const token = ctx.issueToken({ scope: vals.length === 1 ? vals[0] : vals, sub: b64(Buffer.from(app.k.kid, 'hex')), exp, ctx: pl.ctx,
+      upt: pl.nonce.upt ?? uptime(ctx.boot), actx: pl.actx });
     await ctx.log(LOG.AUTH_SUCCESS_EXTERNAL, 0, app.k.kid, vals.join(' '));
     await throttle(ctx, t0, true);
     return { json: { token } };

@@ -76,20 +76,23 @@ export function newBoot(dev) {
 export const uptime = (boot) => Math.floor((Date.now() - boot.started) / 1000);
 
 /** A time-based 32-byte nonce, remembered for this boot. */
-export function issueNonce(boot, ttl = 86400) {
+export function issueNonce(boot, ttl = 86400, extra = null) {
   const n = Buffer.concat([Buffer.alloc(4), rand(28)]);
   n.writeUInt32BE(Math.floor(Date.now() / 1000));
   const s = b64(n);
-  boot.nonces.push({ n: s, exp: Math.floor(Date.now() / 1000) + ttl });
+  boot.nonces.push({ n: s, exp: Math.floor(Date.now() / 1000) + ttl, ...extra });
   if (boot.nonces.length > NONCE_KEEP) boot.nonces.splice(0, boot.nonces.length - NONCE_KEEP);
   return s;
 }
-/** Is `s` a live nonce of this boot? consume: take it, so it is accepted once (DEV-499). */
+/** Is `s` a live nonce of this boot? consume: take it, so it is accepted once (DEV-499).
+ *  The record it was issued with, or null. */
 export function nonceValid(boot, s, consume = false) {
   const now = Math.floor(Date.now() / 1000);
   const i = typeof s === 'string' ? boot.nonces.findIndex((x) => x.n === s && x.exp >= now) : -1;
-  if (i >= 0 && consume) boot.nonces.splice(i, 1);
-  return i >= 0;
+  if (i < 0) return null;
+  const rec = boot.nonces[i];
+  if (consume) boot.nonces.splice(i, 1);
+  return rec;
 }
 
 // ---- audit log -----------------------------------------------------------------

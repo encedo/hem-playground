@@ -2,7 +2,7 @@
 // in the firmware's order, and the reply headers it always sends.
 
 import { jwtParse, jwtVerify, jwtSign, b64, rand } from './codec.mjs';
-import { newLogFile, logAppend, LOG } from './device.mjs';
+import { newLogFile, logAppend, LOG, uptime } from './device.mjs';
 
 export class HttpErr extends Error { constructor(status, opts = {}) { super(`HTTP ${status}`); this.status = status; this.close = opts.close; this.text = opts.text; } }
 export const fail = (status, opts) => { throw new HttpErr(status, opts); };
@@ -73,18 +73,25 @@ export class Ctx {
     if (!ok) { await this.log(LOG.FAILED_SCOPE_CHECK, 1, this.token?.sub ?? '', logScope ?? allowed[0]); fail(403); }
   }
 
-  /** Issue a bearer token signed with this boot's token key. */
-  issueToken({ scope, sub, exp, ctx }) {
+  /** Issue a bearer token signed with this boot's token key. DEV-511: the login context goes in too - `org` (the request's Origin, up to 128 chars),
+   *  `upt` (uptime when the login started), `v` and, from ext/token, the app's `actx`. */
+  issueToken({ scope, sub, exp, ctx, upt = uptime(this._boot), actx }) {
     const p = { scope, sub, iat: this.now, exp, jti: b64(rand(32)) };
     if (typeof ctx === 'string' && ctx.length >= 1 && ctx.length <= 64) p.ctx = ctx;
+    const org = this.headers?.origin;
+    if (typeof org === 'string' && org.length <= 128) p.org = org;
+    p.upt = upt; p.v = 1;
+    if (actx && typeof actx === 'object' && !Array.isArray(actx) && JSON.stringify(actx).length <= 128) p.actx = actx;
     return jwtSign(p, Buffer.from(this._boot.tokenKey, 'base64'));
   }
 }
 
+export const MAX_TOKEN = 2048;
+
 /** Validate a bearer token against this boot's key. null when invalid. */
 export function checkBearer(boot, header, now) {
   const m = /^bearer\s+(\S+)$/i.exec(header ?? '');
-  if (!m) return null;
+  if (!m || m[1].length > MAX_TOKEN) return null;           // DEV-511: longer → 401 before the decode
   const p = jwtVerify(jwtParse(m[1]), Buffer.from(boot.tokenKey, 'base64'), now);
   if (!p || typeof p.exp !== 'number' || p.sub == null) return null;
   if (!(typeof p.scope === 'string' ? p.scope.length > 0 : Array.isArray(p.scope) && p.scope.length > 0)) return null;

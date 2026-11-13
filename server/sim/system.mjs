@@ -207,6 +207,7 @@ export async function postAttestation(ctx) {
   const v = versionJson(ctx);
   const body = { iss: 'https://attest.encedo.com', aud: b.aud, iat: ctx.now, exp: ctx.now + 300, nonce: b.nonce, jti: crypto.randomUUID(),
     device: { hwv: v.hwv, fwv: v.fwv, blv: v.blv, assurance: ctx.ppa ? 'hard' : 'soft', cc_mode: ctx.dev.cfg?.cc_mode ?? 0, policy: ctx.dev.cfg?.policy ?? [] } };
+  if (ctx.token) body.auth = authBlock(ctx, ctx.token);
   let k = b.kid ? await ctx.key(b.kid) : null;
   if (k?.der) k = null;                                   // a generic DER record: a token without a key block
   if (b.pop_args && (!k || !K.isAsym(k.type) || !k.pkey)) fail(400);
@@ -226,6 +227,18 @@ export async function postAttestation(ctx) {
   }
   await ctx.log(LOG.SYSTEM_ATTESTATION, 0, ctx.token?.sub ?? '', b.kid ?? '');
   return { json: { attestation: attestationJwt(ctx.dev, body) } };
+}
+
+/** DEV-511: the login context of the token the request carried. `age` by the device uptime, from
+ *  the token's `upt` (a token issued before DEV-511 has none: then from its `iat`). */
+function authBlock(ctx, t) {
+  const up = uptime(ctx.boot), ext = t.sub !== 'U' && t.sub !== 'M';
+  const a = { v: 1, iat: t.iat, age: Math.max(0, Number.isInteger(t.upt) ? up - t.upt : ctx.now - t.iat), mth: ext ? 'ext' : 'pwd' };
+  if (ext) a.akid = Buffer.from(String(t.sub), 'base64').toString('hex');
+  if (ext && t.actx && typeof t.actx === 'object' && !Array.isArray(t.actx)) a.actx = t.actx;
+  if (typeof t.org === 'string') a.org = t.org;
+  a.tts = !!(ctx.dev.cfg?.trusted_ts && ctx.boot.rtcSet);
+  return a;
 }
 
 function pop(k, b, nonce) {
