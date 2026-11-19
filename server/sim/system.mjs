@@ -78,9 +78,12 @@ export async function getCheckin(ctx) {
 
 export async function postCheckin(ctx) {
   if (!ctx.body || typeof ctx.body.checked !== 'string') fail(400);
-  const key = checkKey(ctx);
+  // The HMAC key is X25519(session key, iss) of the reply, as the firmware's jwt_decode derives it:
+  // the backend may answer with any of its trusted keys, not only the one the check was sent to.
   const p = jwtParse(ctx.body.checked);
-  const pl = p && jwtVerify(p, key, ctx.now);
+  const iss = p && unb64(p.payload?.iss);
+  const key = iss?.length === 32 ? x25519(Buffer.from(ctx.boot.session.priv, 'base64'), iss) : null;
+  const pl = key && jwtVerify(p, key, ctx.now);
   if (!pl) fail(401);
   if (!nonceValid(ctx.boot, pl.jti)) fail(401);
   if (!TRUSTED_BACKENDS.includes(pl.iss)) fail(401);
