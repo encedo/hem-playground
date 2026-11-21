@@ -16,6 +16,19 @@ const run = (args) => new Promise((resolve, reject) => execFile('openssl', args,
 /** KID of a generic DER record: SHA-1 of the 2-byte DER length (little-endian) and the DER (DEV-501). */
 const derKid = (der) => { const l = Buffer.alloc(2); l.writeUInt16LE(der.length); return sha('sha1', l, der).subarray(0, 16).toString('hex'); };
 
+/** A CSR (base64 DER, PKCS#10 v1) for the stored TLS private key, as POST /api/system/config gen_csr returns it. */
+export async function csrFor(keyDerB64, hostname, email) {
+  const key = crypto.createPrivateKey({ key: Buffer.from(keyDerB64, 'base64'), format: 'der', type: 'pkcs8' });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tls-'));
+  try {
+    const k = path.join(dir, 'k.pem');
+    await fs.writeFile(k, key.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
+    await run(['req', '-new', '-key', k, '-subj', `/C=UK/O=Encedo Limited/OU=EncedoKey/CN=${hostname}/emailAddress=${email}`,
+      '-addext', `subjectAltName=DNS:${hostname}`, '-sha256', '-outform', 'DER', '-out', path.join(dir, 'r.der')]);
+    return b64(await fs.readFile(path.join(dir, 'r.der')));
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+}
+
 /** { key, cert, csr } records / CSR for `hostname`, built with OpenSSL (PKCS#10 v1, version 0). */
 export async function tlsRecords(hostname, email, now) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });

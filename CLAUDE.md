@@ -15,7 +15,7 @@ done, and the facts that have already cost time.
   reference is silent, read the firmware source (`encedo_firmware/Firmware/src`),
   not a guess.
 - **The acceptance tests are other people's code.** `sdk/test/device.mjs` (the
-  hem-sdk-js suite for a real device) and hem-api-tester on branch `fw-1.3.x`
+  hem-sdk-js suite for a real device) and hem-api-tester on branch `main`
   (`~/develop/hem-api-tester`, the user's checkout — never edit it, never switch
   its branch). Make the simulator pass them; do not bend a test.
 - **One Redis hash per module, named by its prefix.** Everything a module has is
@@ -62,14 +62,19 @@ docker compose up -d --build app
 docker compose exec -T redis redis-cli DEL test && docker compose restart app   # a module in its box
 export NODE_EXTRA_CA_CERTS=.local/caddy-root.crt
 node test/personalise.mjs https://test.localhost
-node sdk/test/device.mjs https://test.localhost                                # 35/35
+node sdk/test/device.mjs https://test.localhost                                # 36/36
 test/run-tester.sh test_1.php test_3.php test_4.php test_9.php test_10.php \
   test_11.php test_12.php test_13.php test_14.php test_15.php                   # all PASS but T-13.6
 ```
 
 T-2, T-13.6 and T-16 cannot pass on a virtual module (T-2 / T-16: domain registration at
 api.encedo.com; T-13.6: the certificate is from the EPA Custody CA, and an EPA returns it
-instead of a CSR) — that is agreed, not a bug to chase.
+instead of a CSR) — that is agreed, not a bug to chase. Also agreed (DEV-519), because the proxy in front
+(Caddy locally, nginx on the server) handles them before the module sees the request, as with T-15.13:
+the folded header line of T-15.19 (obs-fold → 400); T-15.22 b, an upload whose body stops (the proxy does not
+pass a part body on - the module itself answers 406 and closes after 5 s); T-15.26, the TLS handshake, header
+and body deadlines (TLS ends at the proxy). Firmware-internal fixes (flash, CRC, record layout, boot, the
+DIAG test aids) do not apply to the simulator; the API it answers does, 100%.
 The default rate limit (3000 requests a minute) is there because the tester is fast.
 
 ## Facts that bite

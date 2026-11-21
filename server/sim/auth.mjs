@@ -2,8 +2,8 @@
 // with a phone through the broker.
 
 import crypto from 'node:crypto';
-import { b64, unb64, jwtParse, jwtVerify, jwtSign, x25519, hmac, isPrintable } from './codec.mjs';
-import { fail, validScope, scopes } from './http.mjs';
+import { b64, unb64, jwtParse, jwtVerify, jwtSign, x25519, hmac, isPrintable, validX25519Pub } from './codec.mjs';
+import { fail, validScope, scopes, ctxOk, TOKEN_DEFAULT_LIFE, TOKEN_MAX_LIFE } from './http.mjs';
 import { issueNonce, nonceValid, uptime, LOG } from './device.mjs';
 import { genuineToken } from './attest.mjs';
 import { typeCode, record } from './keys.mjs';
@@ -23,7 +23,8 @@ async function throttle(ctx, t0, ok) {
   if (wait > 0) await sleep(wait);
 }
 
-/** Verify a client-signed request JWT keyed X25519(devPriv, iss). Returns the payload or fails 401. */
+/** Verify a client-signed request JWT keyed X25519(devPriv, iss). Returns the payload or fails 401.
+ *  The nonce is not taken here: the caller calls pl.consume() once the issuer passed too (DEV-519). */
 function verifySigned(ctx, token, devPriv) {
   const p = jwtParse(token);
   if (!p || p.header.ecdh !== 'x25519') fail(401);
@@ -33,10 +34,10 @@ function verifySigned(ctx, token, devPriv) {
   if (!key) fail(401);
   const pl = jwtVerify(p, key, ctx.now);                 // exp / nbf checked when present
   if (!pl) fail(401);
-  const n = unb64(pl.jti)?.length === 32 ? nonceValid(ctx.boot, pl.jti, true) : null;
+  const n = unb64(pl.jti)?.length === 32 ? nonceValid(ctx.boot, pl.jti) : null;
   if (!n) fail(401);
-  ctx.touch('boot');
-  Object.defineProperty(pl, 'nonce', { value: n });      // what the nonce was issued with (DEV-511: upt)
+  Object.defineProperty(pl, 'nonce', { value: n });      // what the nonce was issued with (DEV-511: upt; DEV-514: ctx)
+  Object.defineProperty(pl, 'consume', { value: () => { nonceValid(ctx.boot, pl.jti, true); ctx.touch('boot'); } });
   return pl;
 }
 
@@ -64,10 +65,13 @@ export async function postToken(ctx) {
     if (pl.iss === ctx.dev.cfg.userkey && !ctx.dev.userLocked) sub = 'U';
     else if (pl.iss === ctx.dev.cfg.masterkey) sub = 'M';
     if (!sub) fail(401);
+    pl.consume();
     if (!validScope(pl.scope)) fail(400);
     const iat = typeof pl.iat === 'number' ? pl.iat : null;
-    let exp = typeof pl.exp === 'number' && pl.exp > 0 ? pl.exp : (iat ?? ctx.now) + 60;
+    // DEV-519: 5 min without exp (was 60 s), at most 12 h ahead of the device clock (always set here)
+    let exp = typeof pl.exp === 'number' && pl.exp > 0 ? pl.exp : (iat ?? ctx.now) + TOKEN_DEFAULT_LIFE;
     if (iat !== null && exp < iat) exp = iat + 30;
+    exp = Math.min(exp, ctx.now + TOKEN_MAX_LIFE);
     const token = ctx.issueToken({ scope: pl.scope, sub, exp, ctx: pl.ctx });
     await ctx.log(LOG.AUTH_SUCCESS_INTERNAL, 0, sub, scopes({ scope: pl.scope }).join(' '));
     await throttle(ctx, t0, true);
@@ -90,10 +94,11 @@ export async function postInit(ctx) {
   ready(ctx, { inited: false });
   if (!ctx.body || typeof ctx.body.init !== 'string') fail(400);
   const pl = verifySigned(ctx, ctx.body.init, Buffer.from(ctx.boot.session.priv, 'base64'));
+  pl.consume();
   const c = pl.cfg;
   if (!c || typeof c !== 'object') fail(400);
   const str = (v) => typeof v === 'string';
-  const key32 = (v) => unb64(v)?.length === 32;
+  const key32 = (v) => validX25519Pub(unb64(v));          // DEV-519: a low-order point is refused
   const bool = (v) => typeof v === 'boolean';
   if (!str(c.user) || !str(c.email) || !key32(c.masterkey) || !key32(c.userkey) || !str(c.hostname) || !str(c.origin)
     || !bool(c.trusted_ts) || !bool(c.trusted_backend) || !bool(c.allow_keysearch)) fail(400);
@@ -166,8 +171,10 @@ export async function extValidate(ctx) {
   const pid = unb64(b.pid);
   if (!pid || pid.length !== 32) fail(400);
   const pl = verifySigned(ctx, b.reply, eidPriv(ctx));
+  pl.consume();
   if (!isPrintable(pl.label, 1, 64)) fail(400);
   const appPub = unb64(pl.iss);
+  if (!validX25519Pub(appPub)) fail(400);
   const descr = Buffer.concat([Buffer.from('EXTAID'), pid]);
   const rec = record('CURVE25519', { priv: null, pub: appPub }, { att: false, label: pl.label, descr: b64(descr.subarray(0, 128)), now: ctx.now });
   // DEV-501: epk is checked before the key is stored
@@ -218,8 +225,9 @@ export async function extRequest(ctx) {
   const epk = epkOf(b.epk);
   const key = x25519(eidPriv(ctx), epk);
   if (!key) fail(400);
-  if (b.ctx !== undefined && !(typeof b.ctx === 'string' && b.ctx.length >= 1 && b.ctx.length <= 64)) fail(400);
-  if (b.note !== undefined && !(typeof b.note === 'string' && b.note.length >= 1 && b.note.length <= 128)) fail(400);
+  if (b.ctx !== undefined && !ctxOk(b.ctx)) fail(400);
+  const noteLen = typeof b.note === 'string' ? Buffer.byteLength(b.note, 'utf8') : 0;
+  if (b.note !== undefined && !(noteLen >= 1 && noteLen <= 128)) fail(400);
   if (!validScope(b.scope)) fail(400);
   const vals = scopes({ scope: b.scope });
   let text = vals.join(' ');
@@ -234,7 +242,8 @@ export async function extRequest(ctx) {
       break;
     }
   }
-  const jti = issueNonce(ctx.boot, 86400, { upt: uptime(ctx.boot) });   // DEV-511: an ext login starts here
+  // DEV-511: an ext login starts here; DEV-514: the ctx is bound to the jti, the authreply must carry the same
+  const jti = issueNonce(ctx.boot, 86400, { upt: uptime(ctx.boot), ctx: b.ctx ?? null });
   const sealed = {};
   for (const { k, pid } of (await pairedApps(ctx)).slice(0, 8)) sealed[pid] = sealScope(eidPriv(ctx), Buffer.from(k.pub, 'base64'), Buffer.from(jti, 'base64'), Buffer.from(text));
   const claims = { iss: ctx.dev.eid.pub, aud: b.epk, iat: ctx.now, exp: ctx.now + life, jti, scope: sealed };
@@ -251,9 +260,13 @@ export async function extToken(ctx) {
   const t0 = Date.now();
   try {
     const pl = verifySigned(ctx, ctx.body.authreply, eidPriv(ctx));
+    // DEV-514: the ctx of the ext/request exactly (absent when it had none); the jti is not consumed by this failure
+    if (pl.ctx !== undefined && !ctxOk(pl.ctx)) fail(401);
+    if ((pl.ctx ?? null) !== (pl.nonce.ctx ?? null)) fail(401);
     const app = (await pairedApps(ctx)).find((a) => a.pid === pl.pid);
     if (!app || unb64(pl.pid)?.length !== 32) fail(406);
     if (pl.iss !== app.k.pub) fail(406);
+    pl.consume();                                         // DEV-519: only after the issuer check
     if (typeof pl.scope !== 'string' || !pl.scope.startsWith('A')) fail(406);
     const raw = unb64(pl.scope.slice(1));
     if (!raw || raw.length < 48 || (raw.length - 32) % 16) fail(406);
@@ -265,8 +278,9 @@ export async function extToken(ctx) {
     } catch { fail(406); }
     if (!hmac('sha256', K, text).equals(raw.subarray(raw.length - 32))) fail(406);
     const vals = text.toString().split('#')[0].split(' ').filter(Boolean);
-    if (!vals.length) fail(406);
-    const exp = typeof pl.exp === 'number' && pl.exp > 0 ? pl.exp : ctx.now + 60;
+    // DEV-519: the approved scope must pass the auth/token rules, in the form ext/request sealed it
+    if (!vals.length || !validScope(vals.length === 1 ? vals[0] : vals)) fail(406);
+    const exp = typeof pl.exp === 'number' && pl.exp > 0 ? Math.min(pl.exp, ctx.now + TOKEN_MAX_LIFE) : ctx.now + TOKEN_DEFAULT_LIFE;
     const token = ctx.issueToken({ scope: vals.length === 1 ? vals[0] : vals, sub: b64(Buffer.from(app.k.kid, 'hex')), exp, ctx: pl.ctx,
       upt: pl.nonce.upt ?? uptime(ctx.boot), actx: pl.actx });
     await ctx.log(LOG.AUTH_SUCCESS_EXTERNAL, 0, app.k.kid, vals.join(' '));

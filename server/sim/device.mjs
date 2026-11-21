@@ -10,7 +10,9 @@ export const BL_VERSION = 'Encedo Secure Bootloader v2.0.2';
 // application X25519 key the check-in is keyed with, and the publisher key.
 export const APP_PUBKEY = Buffer.from('fcb6f1a3932053a64eb55b31c46e63090e7ee1ec31a1ad6b57c7aa3081459d30', 'hex');
 export const PUBLISHER = Buffer.from('b15be87ccb5de4f9c6c18d62dc63864fdc558b4f5062221f75127d52c10f7aea', 'hex');
-export const TRUSTED_BACKENDS = ['/Lbxo5MgU6ZOtVsxxG5jCQ5+4ewxoa1rV8eqMIFFnTA=', 'HZgDdk8pYjtLQCunwz/KTnwpFA3ELGlkIjKbxMyrEwI='];
+// DEV-519 (C1): the first key of the old list is gone (its private half was in the sources), three new ones (api_system.c)
+export const TRUSTED_BACKENDS = ['HZgDdk8pYjtLQCunwz/KTnwpFA3ELGlkIjKbxMyrEwI=', 'Oo1vI+gAIjDI0CsqBorB/d1OUsyxagcXm1z2sW+LrUI=',
+  'e1BD7ETSA/FMT9oc54GpSaZYFKuHEmARXvabdt6DX2s=', 'JH7AmnPZr2JKZMxBneDYXUIL46UpX4O1ODQ7XDi5lWQ='];
 export const SD_SECTORS = 31116288;                 // a 16 GB card, as a PPA has
 const NONCE_KEEP = 256;
 

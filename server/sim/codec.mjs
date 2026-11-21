@@ -35,6 +35,12 @@ export function x25519NewRaw() {
   return { priv: privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(16), pub: publicKey.export({ format: 'der', type: 'spki' }).subarray(12) };
 }
 export const x25519PubOf = (rawPriv) => crypto.createPublicKey(x25519Priv(rawPriv)).export({ format: 'der', type: 'spki' }).subarray(12);
+/** A 32-byte X25519 public key that passes the public-key check (DEV-519: a low-order point is refused). */
+export function validX25519Pub(raw) {
+  if (!raw || raw.length !== 32) return false;
+  const probe = x25519(x25519NewRaw().priv, raw);
+  return !!probe && !probe.equals(Buffer.alloc(32));
+}
 /** X25519(priv, pub) on raw 32-byte keys; null when the peer is not a valid key (low order etc). */
 export function x25519(rawPriv, rawPub) {
   try { return crypto.diffieHellman({ privateKey: x25519Priv(rawPriv), publicKey: x25519Pub(rawPub) }); } catch { return null; }

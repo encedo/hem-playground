@@ -1,14 +1,14 @@
 #!/bin/sh
-# Run hem-api-tester (branch fw-1.3.x) against a local playground module, in a PHP container.
+# Run hem-api-tester (branch main) against a local playground module, in a PHP container.
 #   test/run-tester.sh [test_N.php ...]        (default: every test, in order)
-# HEM_DOMAIN (default test.localhost); TESTER_DIR (default ../hem-api-tester, on branch fw-1.3.x).
+# HEM_DOMAIN (default test.localhost); TESTER_DIR (default ../hem-api-tester, on branch main).
 # EXTAUTH=1: run ExtAuth_Simulator.php (the phone app) in the background, for test_5 / test_6.
 # TESTER_INPUT: what to type at the prompts (test_7 subtest number, test_8 Enter), e.g. TESTER_INPUT='2\n'.
 set -e
 cd "$(dirname "$0")/.."
 TESTER_DIR=${TESTER_DIR:-../hem-api-tester}
 HEM_DOMAIN=${HEM_DOMAIN:-test.localhost}
-[ "$(git -C "$TESTER_DIR" branch --show-current)" = fw-1.3.x ] || echo "warning: $TESTER_DIR is not on fw-1.3.x" >&2
+[ "$(git -C "$TESTER_DIR" branch --show-current)" = main ] || echo "warning: $TESTER_DIR is not on main" >&2
 docker image inspect hem-tester:php >/dev/null 2>&1 || docker build -q -t hem-tester:php -f test/tester.Dockerfile test >/dev/null
 TESTS=${*:-$(cd "$TESTER_DIR" && ls test_*.php | sort -t_ -k2 -n | tr '\n' ' ')}
 case "$HEM_DOMAIN" in *.localhost) ADDHOST="--add-host $HEM_DOMAIN:127.0.0.1" ;; *) ADDHOST= ;; esac

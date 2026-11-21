@@ -49,6 +49,21 @@ function route(method, path) {
   return null;
 }
 
+/** DEV-519 (H5, M4): a JSON body nests at most 8 containers and has at most 128 structural tokens
+ *  ({ [ , : outside strings), checked before parsing; otherwise the body is refused (400). */
+function jsonWithinLimits(txt) {
+  let depth = 0, tokens = 0, inStr = false;
+  for (let i = 0; i < txt.length; i++) {
+    const c = txt[i];
+    if (inStr) { if (c === '\\') i++; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{' || c === '[') { if (++depth > 8 || ++tokens > 128) return false; }
+    else if (c === '}' || c === ']') depth--;
+    else if (c === ',' || c === ':') { if (++tokens > 128) return false; }
+  }
+  return true;
+}
+
 function readBody(req, limit) {
   return new Promise((resolve) => {
     const chunks = []; let n = 0, over = false;
@@ -92,6 +107,7 @@ export async function handleHem({ store, prefix, req, res, tls, settings, onLog 
       if (req.headers['transfer-encoding']) throw new HttpErr(501, { close: true });
       const origin = req.headers.origin;
       if (origin !== undefined) {
+        if (origin.length > 256) throw new HttpErr(400, { close: true });   // DEV-519 (M1): an Origin over 256 chars, not echoed
         if (!originAllowed(dev.cfg?.origin ?? '*', origin)) throw new HttpErr(412);
         info.origin = origin;
       }
@@ -140,12 +156,17 @@ export async function handleHem({ store, prefix, req, res, tls, settings, onLog 
         if (req.method === 'POST') {
           if (Number(req.headers['content-length']) > MAX_JSON) throw new HttpErr(413, { close: true });
           const { buf } = await readBody(req, MAX_JSON);
-          try { ctx.body = JSON.parse(buf.toString('utf8')); if (typeof ctx.body !== 'object' || ctx.body === null || Array.isArray(ctx.body)) ctx.body = null; } catch { ctx.body = null; }
+          const txt = buf.toString('utf8');
+          try { ctx.body = jsonWithinLimits(txt) ? JSON.parse(txt) : null; if (typeof ctx.body !== 'object' || ctx.body === null || Array.isArray(ctx.body)) ctx.body = null; } catch { ctx.body = null; }
         }
         if (!path.startsWith('/api/')) throw new HttpErr(404);
         handler = route(req.method, path);
         if (!handler) throw new HttpErr(404);
       }
+
+      // DEV-519: while software is installed or the disks are formatted every endpoint but status and version is 409
+      const always = path === '/api/system/status' || path === '/api/system/version';
+      if (!always && (ctx.busy || b.installing) && path.startsWith('/api/')) throw new HttpErr(409);
 
       let out, err = null;
       try { out = await handler(ctx); } catch (e) { if (!(e instanceof HttpErr)) throw e; err = e; }

@@ -4,7 +4,7 @@
 // seed; symmetric the secret. pub: the API form (base64), see the key-type table.
 
 import crypto from 'node:crypto';
-import { b64, sha, rand } from './codec.mjs';
+import { b64, sha, rand, validX25519Pub } from './codec.mjs';
 import { CURVES, toBuf, ed25519PrivToX25519, ed25519PubToX25519 } from './ec.mjs';
 
 export const NIST = ['SECP256R1', 'SECP384R1', 'SECP521R1', 'SECP256K1'];
@@ -29,6 +29,7 @@ export function typeString(k) {
   if (k.att) f.push('ATT');
   if (k.pkey) f.push('PKEY');
   if (k.ecdh) f.push('ECDH');
+  if (k.raw) f.push('ECDH_RAW');                       // DEV-520
   if (k.exdsa) f.push('ExDSA');
   if (k.cert) f.push('CERT');
   if (isPqc(k.type)) f.push('PQC');
@@ -38,10 +39,13 @@ export function typeString(k) {
 }
 
 export function parseMode(mode) {
-  if (mode === 'ECDH') return { ecdh: true, exdsa: false, hpke: false };
-  if (mode === 'ExDSA') return { ecdh: false, exdsa: true, hpke: false };
-  if (mode === 'ECDH,ExDSA') return { ecdh: true, exdsa: true, hpke: false };
-  if (mode === 'HPKE') return { ecdh: false, exdsa: false, hpke: true };
+  if (mode === 'ECDH') return { ecdh: true, exdsa: false, hpke: false, raw: false };
+  if (mode === 'ExDSA') return { ecdh: false, exdsa: true, hpke: false, raw: false };
+  if (mode === 'ECDH,ExDSA') return { ecdh: true, exdsa: true, hpke: false, raw: false };
+  if (mode === 'HPKE') return { ecdh: false, exdsa: false, hpke: true, raw: false };
+  // DEV-520: a key whose raw ECDH secret may be read without the raw_ecdh_enabled policy
+  if (mode === 'ECDH_RAW') return { ecdh: true, exdsa: false, hpke: false, raw: true };
+  if (mode === 'ECDH_RAW,ExDSA') return { ecdh: true, exdsa: true, hpke: false, raw: true };
   return null;
 }
 /** Types that may be made HPKE-only (create / derive with mode HPKE, DEV-503). */
@@ -49,19 +53,19 @@ export const HPKE_TYPES = ['SECP256R1', 'SECP384R1', 'SECP521R1', 'CURVE25519', 
 
 /** Flags a key of `type` gets, given the requested mode. */
 export function flagsFor(type, mode) {
-  const m = mode ?? { ecdh: false, exdsa: false, hpke: false };
-  if (m.hpke) return { ecdh: false, exdsa: false, hpke: true };
-  if (NIST.includes(type)) return { ecdh: m.ecdh, exdsa: m.exdsa, hpke: false };
-  if (type in MONT) return { ecdh: true, exdsa: false, hpke: false };
-  if (type === 'ED25519') return { ecdh: m.ecdh, exdsa: true, hpke: false };
-  if (type === 'ED448') return { ecdh: false, exdsa: true, hpke: false };
-  return { ecdh: false, exdsa: false, hpke: false };
+  const m = mode ?? { ecdh: false, exdsa: false, hpke: false, raw: false };
+  if (m.hpke) return { ecdh: false, exdsa: false, hpke: true, raw: false };
+  if (NIST.includes(type)) return { ecdh: m.ecdh, exdsa: m.exdsa, hpke: false, raw: !!m.raw };
+  if (type in MONT) return { ecdh: true, exdsa: false, hpke: false, raw: !!m.raw };
+  if (type === 'ED25519') return { ecdh: m.ecdh, exdsa: true, hpke: false, raw: !!m.raw };
+  if (type === 'ED448') return { ecdh: false, exdsa: true, hpke: false, raw: false };
+  return { ecdh: false, exdsa: false, hpke: false, raw: false };
 }
 
 const SUBTYPE = { SECP256R1: 10, SECP384R1: 11, SECP521R1: 12, SECP256K1: 13, CURVE25519: 20, CURVE448: 21, ED25519: 22, ED448: 23,
   MLKEM512: 24, MLKEM768: 25, MLKEM1024: 26, MLDSA44: 27, MLDSA65: 28, MLDSA87: 29,
   'SHA2-256': 10, 'SHA2-384': 11, 'SHA2-512': 12, 'SHA3-256': 13, 'SHA3-384': 14, 'SHA3-512': 15, SHA1: 16, AES128: 30, AES192: 31, AES256: 32 };
-/** The firmware's 16-bit type word (repo.h STOREDKEY_*), as ext/request reports it. */
+/** The firmware's type word (repo.h STOREDKEY_*; 32 bit since DEV-520, bit positions unchanged), as ext/request reports it. */
 export function typeCode(k) {
   let t = SUBTYPE[k.type] ?? 1;
   if (isAsym(k.type) || k.der) t |= 1 << 15;
@@ -73,7 +77,8 @@ export function typeCode(k) {
   if (k.cert) t |= 1 << 9;
   if (isPqc(k.type)) t |= 1 << 8;
   if (k.hpke) t |= 1 << 7;
-  return t;
+  if (k.raw) t |= 1 << 6;                               // DEV-520 ECDH_RAW
+  return t >>> 0;
 }
 
 const kidOf = (bytes) => sha('sha1', bytes).subarray(0, 16).toString('hex');
@@ -142,6 +147,7 @@ export function importPub(type, bytes) {
       crypto.ECDH.convertKey(bytes, CURVES[type].node, null, null, 'uncompressed');
       return bytes;
     }
+    if (type === 'CURVE25519' && !validX25519Pub(bytes)) return null;   // DEV-519: a low-order point is refused
     const alg = MONT[type] ?? EDW[type] ?? MLKEM[type] ?? MLDSA[type];
     crypto.createPublicKey({ key: bytes, format: 'raw-public', asymmetricKeyType: alg });
     return bytes;

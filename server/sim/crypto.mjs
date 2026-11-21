@@ -159,7 +159,7 @@ async function symKey(ctx, b, size, label) {
   const { salt, info } = hkdfParts(b);
   const m = await keyMode(ctx, b);
   if (m.mode === 0) {
-    if (!(m.key.type in K.AESK) || K.AESK[m.key.type] < size) fail(400);
+    if (!(m.key.type in K.AESK) || K.AESK[m.key.type] !== size) fail(400);   // DEV-519: only at its own size (a smaller one used the first bytes)
     if (label.includes('chacha20') && m.key.type !== 'AES256') fail(400);
     return Buffer.from(m.key.priv, 'base64').subarray(0, size);
   }
@@ -214,7 +214,7 @@ async function wrapCore(ctx, unwrap) {
   if (!WRAP[alg]) fail(400);
   if (msg.length % 8) fail(400);
   const iv = b.iv === undefined ? Buffer.from('A6A6A6A6A6A6A6A6', 'hex') : bin(b.iv, 8, 8, { required: true });
-  const key = await symKey(ctx, b, WRAP[alg], 'encedo-wrap:v1:');
+  const key = await symKey(ctx, b, WRAP[alg], `encedo-wrap:v1:aes${WRAP[alg] * 8}:`);   // DEV-519: the KEK size in the label
   if (msg.length < (unwrap ? 24 : 16)) fail(406);
   let out;
   try {
@@ -246,7 +246,6 @@ export async function ecdh(ctx) {
   if (b.ext_kid !== undefined && !isHex32(b.ext_kid)) fail(400);
   if (b.alg !== undefined && !(ECDH_HASH[b.alg] || ECDH_HKDF[b.alg])) fail(400);
   if (b.pubkey !== undefined) { const pk = typeof b.pubkey === 'string' ? unb64(b.pubkey) : null; if (!pk || pk.length > 70) fail(400); }
-  if (!b.alg && !(ctx.dev.cfg.policy ?? []).includes('raw_ecdh_enabled')) { await ctx.log(LOG.FAILED_SCOPE_CHECK, 1, ctx.token.sub, 'raw_ecdh_enabled'); fail(403); }
   const hk = ECDH_HKDF[b.alg];
   let items = null, single = null;
   if (b.hkdf_args !== undefined) {
@@ -270,6 +269,8 @@ export async function ecdh(ctx) {
   }
   let ss;
   try { ss = K.ecdh(key, peer); } catch { fail(400); }
+  // DEV-520: the raw secret needs the policy or a key of mode ECDH_RAW - checked after the agreement (it needs the key)
+  if (!b.alg && !key.raw && !(ctx.dev.cfg.policy ?? []).includes('raw_ecdh_enabled')) { ss.fill(0); await ctx.log(LOG.FAILED_SCOPE_CHECK, 1, ctx.token.sub, 'raw_ecdh_enabled'); fail(403); }
   await ctx.log(LOG.ECDH, 0, ctx.token.sub, b.kid);
   if (items) return { json: { hkdf: items.map((i) => b64(Buffer.from(crypto.hkdfSync(hk[0], ss, i.salt, i.info, i.len)))) } };
   if (single) return { json: { ecdh: b64(Buffer.from(crypto.hkdfSync(hk[0], ss, single.salt, single.info, single.len))) } };
@@ -491,6 +492,7 @@ export async function hpkeSeal(ctx) {
     ({ name: kemName, pkR, x } = kemOfKeys(m, xk));
     kidLog = b.kid;
   } else {
+    if (ctx.token.sub === 'M') { await ctx.log(LOG.FAILED_SCOPE_CHECK, 1, 'M', 'hpke'); fail(403); }   // DEV-519: role M refused
     if (typeof b.kem !== 'string' || !H.KEMS[b.kem]) fail(400);
     kemName = b.kem;
     const raw = bin(b.pubkey, 1, 1568, { required: true });

@@ -15,13 +15,31 @@ function descrOf(v, empty) {
   if (v === '') { if (empty === 'bad') fail(400); return { v: null }; }
   const d = unb64(v);
   if (!d || d.length < 1 || d.length > 128) fail(400);
+  if (isPairingDescr(d)) fail(400);                      // DEV-519: EXTAID is the descr of a paired external authenticator
   return { v };
 }
+/** A descr starting with EXTAID belongs to a paired external authenticator (ext/validate). */
+export const isPairingDescr = (d) => d.length >= 6 && d.subarray(0, 6).toString('latin1') === 'EXTAID';
 function modeOf(v) {
-  if (typeof v !== 'string' || v.length > 12) return null;    // ignored
+  if (typeof v !== 'string' || v.length > 16) return null;    // ignored (DEV-520: up to 16 characters)
   const m = K.parseMode(v);
   if (!m) fail(400);
   return m;
+}
+
+/** Bytes of the key log in use, as defrag/check reports them (the playground's record-size model). */
+export async function storageUsed(ctx) {
+  const keys = await ctx.keys();
+  return { keys, used: keys.reduce((s, k) => s + 160 + (k.pub ? k.pub.length : 0), 0) + (ctx.dev.deletedBytes ?? 0) };
+}
+
+/** Audit data of a key change, as the firmware writes it (DEV-525): the binary KID(s), then the key storage counters
+ *  after the operation - live records and used 32 B chunks, uint32 LE each. */
+async function keyLogData(ctx, ...kids) {
+  const { keys, used } = await storageUsed(ctx);
+  const c = Buffer.alloc(8);
+  c.writeUInt32LE(keys.length, 0); c.writeUInt32LE(Math.ceil(used / 32), 4);
+  return Buffer.concat([...kids.map((k) => Buffer.from(k, 'hex')), c]);
 }
 
 export function keyJson(k, { kid = false, pubkey = false } = {}) {
@@ -33,13 +51,13 @@ export function keyJson(k, { kid = false, pubkey = false } = {}) {
   return j;
 }
 
-async function store(ctx, rec, logType) {
+async function store(ctx, rec, logType, data = null) {
   const limit = ctx.settings.keysPerModule ?? 512;
   if ((await ctx.store.fields(ctx.prefix, 'k:*')).length >= limit) fail(409);
   if (await ctx.key(rec.kid)) fail(logType === LOG.KEY_GENERATION ? 406 : 409);
   rec.seq = Date.now() + Math.random();
   await ctx.putKey(rec);
-  await ctx.log(logType, 0, ctx.token.sub, rec.kid);
+  await ctx.log(logType, 0, ctx.token.sub, await keyLogData(ctx, ...(data ?? [rec.kid])));
 }
 
 function pageWithPqc(list, offset, limit, withPub) {
@@ -91,7 +109,7 @@ export async function search(ctx) {
     const ok = how === 'pre' ? d.subarray(0, needle.length).equals(needle) : how === 'suf' ? d.length >= needle.length && d.subarray(d.length - needle.length).equals(needle) : d.includes(needle);
     if (!ok) return false;
     if (b.type !== undefined && k.type !== b.type) return false;
-    if (mode && ((mode.ecdh && !k.ecdh) || (mode.exdsa && !k.exdsa) || (mode.hpke && !k.hpke))) return false;
+    if (mode && ((mode.ecdh && !k.ecdh) || (mode.exdsa && !k.exdsa) || (mode.hpke && !k.hpke) || (mode.raw && !k.raw))) return false;
     return true;
   });
   const page = pageWithPqc(hits, offset, limit, withPub);
@@ -143,7 +161,7 @@ export async function importKey(ctx) {
   if (!isPrintable(b.label, 1, 64)) fail(400);
   if (!(b.type in K.PUB_LEN)) fail(400);
   const mode = modeOf(b.mode);
-  if (mode?.hpke) fail(400);
+  if (mode?.hpke || mode?.raw) fail(400);                // DEV-520: raw ECDH needs the private key
   const { v: descr } = descrOf(b.descr, 'bad');
   const raw = unb64(b.pubkey);
   if (!raw) fail(400);
@@ -154,18 +172,25 @@ export async function importKey(ctx) {
   return { json: { kid: rec.kid } };
 }
 
+// DEV-519: each field on its own - absent = kept, descr "" removes it, at least one of the two
 export async function update(ctx) {
   await writeAccess(ctx, ['keymgmt:upd']);
   const b = ctx.body;
-  if (!b || !isHex32(b.kid) || !isPrintable(b.label, 1, 64)) fail(400);
-  const { v: descr } = descrOf(b.descr, 'absent');
+  if (!b || !isHex32(b.kid)) fail(400);
+  if (b.label === undefined && b.descr === undefined) fail(400);
+  if (b.label !== undefined && !isPrintable(b.label, 1, 64)) fail(400);
+  const { v: descr } = b.descr === undefined ? { v: undefined } : descrOf(b.descr, 'absent');
   const k = await ctx.key(b.kid);
   if (!k) fail(404);
   if (k.der) fail(409);                                   // system DER records are read-only (DEV-506)
-  k.label = b.label; k.descr = descr; k.updated = ctx.now;
+  // a paired external authenticator: its label can change, its descr cannot (unpairing is keymgmt/delete)
+  if (b.descr !== undefined && k.descr && isPairingDescr(Buffer.from(k.descr, 'base64'))) fail(409);
+  if (b.label !== undefined) k.label = b.label;
+  if (b.descr !== undefined) k.descr = descr;
+  k.updated = ctx.now;
   await ctx.putKey(k);
   ctx.dev.deletedKeys = (ctx.dev.deletedKeys ?? 0) + 1; ctx.dev.deletedBytes = (ctx.dev.deletedBytes ?? 0) + 192; ctx.touch('dev');
-  await ctx.log(LOG.KEY_ATTRIBUTES_CHANGED, 0, ctx.token.sub, k.kid);
+  await ctx.log(LOG.KEY_ATTRIBUTES_CHANGED, 0, ctx.token.sub, await keyLogData(ctx, k.kid));
   return {};
 }
 
@@ -173,7 +198,7 @@ export async function derive(ctx) {
   await writeAccess(ctx, ['keymgmt:derive', 'keymgmt:gen']);
   const b = ctx.body;
   if (!b || !isHex32(b.kid) || !isPrintable(b.label, 1, 64) || typeof b.type !== 'string') fail(400);
-  const mode = typeof b.mode === 'string' && b.mode.length <= 12 ? (K.parseMode(b.mode) ?? fail(400)) : null;
+  const mode = typeof b.mode === 'string' && b.mode.length <= 16 ? (K.parseMode(b.mode) ?? fail(400)) : null;
   const { v: descr } = descrOf(b.descr, 'bad');
   let salt = Buffer.alloc(0);
   if (b.hkdf_salt !== undefined) { const s = typeof b.hkdf_salt === 'string' ? unb64(b.hkdf_salt) : null; if (!s || !s.length || s.length > 128) fail(400); salt = s; }
@@ -202,7 +227,7 @@ export async function derive(ctx) {
   if (mode?.hpke && !K.HPKE_TYPES.includes(b.type)) fail(400);
   const okm = Buffer.from(crypto.hkdfSync('sha512', ikm, salt, Buffer.from(`encedo-derive:v1:${b.type.toLowerCase()}`), K.deriveLen(b.type)));
   const rec = K.record(b.type, K.fromSecret(b.type, okm), { att: false, label: b.label, descr, mode, now: ctx.now });
-  await store(ctx, rec, LOG.KEY_DERIVE);
+  await store(ctx, rec, LOG.KEY_DERIVE, [rec.kid, main.kid]);   // DEV-519: the new KID, then the parent
   return { json: { kid: rec.kid, ...keyJson(rec, { pubkey: b.return_pubkey === true }) } };
 }
 
@@ -219,6 +244,6 @@ export async function del(ctx, rest) {
   ctx.dev.deletedKeys = (ctx.dev.deletedKeys ?? 0) + 1;
   ctx.dev.deletedBytes = (ctx.dev.deletedBytes ?? 0) + 192 + (k.pub?.length ?? 0) + (k.priv?.length ?? 0);
   ctx.touch('dev');
-  await ctx.log(LOG.KEY_DELETE, 0, ctx.token.sub, k.kid);
+  await ctx.log(LOG.KEY_DELETE, 0, ctx.token.sub, await keyLogData(ctx, k.kid));
   return {};
 }

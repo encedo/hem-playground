@@ -1,14 +1,16 @@
 // /api/system/*, /api/storage/*, /api/logger/*
 
 import crypto from 'node:crypto';
-import { hkdf, b64, unb64, unb64urlNoPad, jwtParse, jwtVerify, jwtSign, x25519, hmac, isPrintable, isHex32, sha, rand } from './codec.mjs';
+import { hkdf, b64, unb64, unb64urlNoPad, jwtParse, jwtVerify, jwtSign, x25519, hmac, isPrintable, isHex32, sha, rand, validX25519Pub } from './codec.mjs';
 import { fail, hasScope, scopes } from './http.mjs';
 import { FW_VERSION, BL_VERSION, PUBLISHER, APP_PUBKEY, TRUSTED_BACKENDS, issueNonce, nonceValid, uptime, LOG, newBoot } from './device.mjs';
 import { genuineToken, attestationJwt, slotKey, skid } from './attest.mjs';
 import { sharedAttCert } from './attkey.mjs';
 import * as K from './keys.mjs';
+import * as KM from './keymgmt.mjs';
 import * as H from './hpke.mjs';
 import { hpkeDecap } from './crypto.mjs';
+import { csrFor } from './tls.mjs';
 
 const isoTs = (s) => new Date(s * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
@@ -158,15 +160,25 @@ export async function postConfig(ctx) {
     }
   }
   if (b.userkey !== undefined && b.userkey_hmac !== undefined && b.userkey_nonce !== undefined) {
+    // DEV-519: a U token proves the current password too (key = X25519(new, spk) || X25519(current, spk));
+    // an M token, the recovery, the new one only. Any failure: 400 and nothing of the request saved.
+    // The nonce is consumed also when the proof does not check out (DEV-499 A4).
     const uk = unb64(b.userkey), mac = unb64(b.userkey_hmac), nonce = unb64(b.userkey_nonce);
-    if (uk?.length === 32 && mac?.length === 32 && nonce?.length === 32 && nonceValid(ctx.boot, b.userkey_nonce)) {
-      const k = x25519(Buffer.from(ctx.boot.session.priv, 'base64'), uk);
-      if (k && hmac('sha256', k, nonce).equals(mac)) { c.userkey = b.userkey; ctx.dev.userLocked = false; }
-    }
+    const live = nonce?.length === 32 && nonceValid(ctx.boot, b.userkey_nonce, true);
+    if (live) ctx.touch('boot');
+    const spkPriv = Buffer.from(ctx.boot.session.priv, 'base64');
+    const kNew = validX25519Pub(uk) ? x25519(spkPriv, uk) : null;
+    const kCur = ctx.token.sub === 'M' ? Buffer.alloc(0) : x25519(spkPriv, unb64(c.userkey));
+    if (!live || mac?.length !== 32 || !kNew || !kCur || !hmac('sha256', Buffer.concat([kNew, kCur]), nonce).equals(mac)) fail(400);
+    c.userkey = b.userkey; ctx.dev.userLocked = false;
   }
   const changed = JSON.stringify(c) !== JSON.stringify(ctx.dev.cfg);
-  if (!changed && bad) fail(400);
+  if (!changed && bad && b.gen_csr !== true) fail(400);
   const j = { updated: changed };
+  if (b.gen_csr === true) {                              // a CSR for the stored TLS private key (DEV-485: PKCS#10 v1)
+    const tlsKey = (await ctx.keys()).find((k) => k.der && k.pkey && k.label === 'TLS PrivateKey');
+    if (tlsKey) j.csr = await csrFor(tlsKey.priv, c.hostname ?? ctx.dev.hostname, c.email ?? '');
+  }
   if (changed) { ctx.dev.cfg = c; ctx.dev.uts = ctx.now; ctx.touch('dev'); await ctx.log(LOG.CONFIG_UPDATED, 0, ctx.token.sub); }
   return { json: j };
 }
@@ -216,7 +228,7 @@ export async function postAttestation(ctx) {
   if (b.pop_args && (!k || !K.isAsym(k.type) || !k.pkey)) fail(400);
   if (k) {
     const modes = k.hpke ? (k.type in K.MLKEM ? ['HPKE', 'MLKEM'] : ['HPKE']) : K.NIST.includes(k.type) || k.type in K.MONT || k.type in K.EDW
-      ? [k.exdsa && 'ExDSA', k.ecdh && 'ECDH'].filter(Boolean) : k.type in K.MLDSA ? ['MLDSA'] : k.type in K.MLKEM ? ['MLKEM'] : k.type in K.HMACK ? ['HMAC'] : k.type === 'SHA1' ? ['OTP'] : ['AES'];
+      ? [k.exdsa && 'ExDSA', k.ecdh && 'ECDH', k.raw && 'ECDH_RAW'].filter(Boolean) : k.type in K.MLDSA ? ['MLDSA'] : k.type in K.MLKEM ? ['MLKEM'] : k.type in K.HMACK ? ['HMAC'] : k.type === 'SHA1' ? ['OTP'] : ['AES'];   // DEV-520: ECDH_RAW after ECDH
     const key = { kid: k.kid, type: k.type, modes };
     if (K.isAsym(k.type)) {
       key.pubkey = { primary: k.pub };
@@ -288,20 +300,74 @@ export async function provisioning(ctx) {
 }
 
 // ---- upgrade / reboot / shutdown / defrag ---------------------------------------------------
+// DEV-519 (H2): check_ui accepts only an archive signed by a pinned web UI publisher - the firmware's 3 keys
+// (api_system.c ui_publishers; the first signs the Manager release at api.encedo.com/download/dashboard/).
+export const UI_PUBLISHERS = [
+  '4a6f1c49f46f4652e0472110504d22fdd907952858110ec9038f5e5ddedf1d9a',
+  'f38106f3b65e7a3febc5fc5e15315acaffc05e95ed11f928d59b2d430861abd0',
+  'b4588fb95e59b4ac0ad19ccde00587e15dbd15f0c0f85d31bf1bbce689c1b9dd',
+];
+
+/** webroot.tar as check_ui verifies it: trailer pub || sig, Ed25519 over SHA-512(tar || pub) by a pinned publisher;
+ *  then untar - every header with a valid checksum and a terminated name, at least one file (DEV-519 L38). */
+export function uiArchiveOk(buf) {
+  if (buf.length < 96 + 512) return false;
+  const tar = buf.subarray(0, buf.length - 96), pub = buf.subarray(buf.length - 96, buf.length - 64), sig = buf.subarray(buf.length - 64);
+  if (!UI_PUBLISHERS.includes(pub.toString('hex'))) return false;
+  try {
+    const k = crypto.createPublicKey({ key: pub, format: 'raw-public', asymmetricKeyType: 'ed25519' });
+    if (!crypto.verify(null, sha('sha512', tar, pub), k, sig)) return false;
+  } catch { return false; }
+  let files = 0;
+  for (let at = 0; at + 512 <= tar.length;) {
+    const h = tar.subarray(at, at + 512);
+    if (h.every((x) => x === 0)) break;                   // end of archive
+    const sum = parseInt(h.subarray(148, 156).toString('latin1').replace(/\0.*$/, '').trim(), 8);
+    let calc = 0; for (let i = 0; i < 512; i++) calc += i >= 148 && i < 156 ? 32 : h[i];
+    if (sum !== calc) return false;
+    if (!h.subarray(0, 100).includes(0)) return false;   // the name must be terminated
+    const size = parseInt(h.subarray(124, 136).toString('latin1').replace(/\0.*$/, '').trim() || '0', 8);
+    if (!Number.isFinite(size) || size < 0) return false;
+    const type = String.fromCharCode(h[156]);
+    if (type === '0' || type === '\0') files++;
+    at += 512 + Math.ceil(size / 512) * 512;
+    if (at > tar.length) return false;
+  }
+  return files > 0;
+}
+
+/** A firmware image as check_fw reads it: a .hex file must be well-formed Intel HEX (DEV-519: a malformed record is refused). */
+export function fwImageOk(name, buf) {
+  if (!buf.length || buf[0] === 0xff) return false;
+  if (!/\.hex$/i.test(name)) return true;
+  const lines = buf.toString('latin1').split(/\r?\n/).filter((l) => l.length);
+  if (!lines.length) return false;
+  let eof = false;
+  for (const l of lines) {
+    if (eof || !/^:([0-9A-Fa-f]{2})+$/.test(l)) return false;
+    const b = Buffer.from(l.slice(1), 'hex');
+    if (b.length < 5 || b[0] !== b.length - 5) return false;
+    if (b.reduce((a, x) => (a + x) & 0xff, 0) !== 0) return false;
+    if (b[3] > 5) return false;
+    if (b[3] === 1) eof = true;
+  }
+  return eof;
+}
+
 async function upgradeAccess(ctx) {
   if (ctx.inited) { ctx.needToken(); await ctx.needScope(['system:upgrade', 'system:config']); }
 }
 
 export async function upload(ctx, kind) {
   if (!ctx.ppa) fail(400);
-  if (ctx.inited) { ctx.needToken(); await ctx.needScope(['system:upgrade']); }
+  if (ctx.inited) { ctx.needToken(); await ctx.needScope(['system:upgrade', 'system:config']); }   // DEV-519: system:config too
   const name = ctx.uploadName;
   if (kind === 'fw') {
     if (!/\.(bin|hex)$/i.test(name)) fail(400, { close: true });
     if (ctx.uploadSize >= 3 * 1024 * 1024) fail(413, { close: true });
   } else if (name.toLowerCase() !== 'webroot.tar') fail(400, { close: true });
   await ctx.readUpload();
-  ctx.dev.upgrade[kind] = { name, size: ctx.raw.length, ok: ctx.raw.length > 0 && ctx.raw[0] !== 0xff, polls: 0, state: 'uploaded' };
+  ctx.dev.upgrade[kind] = { name, size: ctx.raw.length, ok: kind === 'ui' ? uiArchiveOk(ctx.raw) : fwImageOk(name, ctx.raw), polls: 0, state: 'uploaded' };
   ctx.touch('dev');
   return {};
 }
@@ -364,14 +430,16 @@ async function defragReport(ctx) {
   if (ctx.boot.installing || !ctx.inited) fail(409);
   ctx.needToken();
   await ctx.needScope(['system:config']);
-  const keys = await ctx.keys();
+  const { keys, used } = await KM.storageUsed(ctx);
   const del = ctx.dev.deletedKeys ?? 0;
   const delSize = ctx.dev.deletedBytes ?? 0;
-  return { used: keys.reduce((s, k) => s + 160 + (k.pub ? k.pub.length : 0), 0) + delSize, keys: keys.length, deleted: del, deleted_size: delSize,
-    invalid: 0, duplicates: 0, reclaimable: delSize >= 8192, reclaimable_size: delSize >= 8192 ? delSize : 0, reserved: 'idle' };
+  return { used, keys: keys.length, deleted: del, deleted_size: delSize,
+    invalid: 0, duplicates: 0, reclaimable: delSize >= 8192, reclaimable_size: delSize >= 8192 ? delSize : 0, reserved: 'idle',
+    broken: 0, broken_size: 0 };                           // DEV-521: a virtual key chain is never broken
 }
 export async function defragCheck(ctx) { return { json: await defragReport(ctx) }; }
 export async function defragStart(ctx) {
+  if (ctx.fls) fail(409);                                // DEV-519: refused in an FLS state
   const r = await defragReport(ctx);
   if (!r.reclaimable) return { json: r };
   ctx.dev.deletedKeys = 0; ctx.dev.deletedBytes = 0; ctx.touch('dev');
@@ -380,9 +448,9 @@ export async function defragStart(ctx) {
 }
 
 // ---- storage (PPA) -------------------------------------------------------------------------
-async function storageAccess(ctx) {
+async function storageAccess(ctx, { lock = false } = {}) {
   if (!ctx.ppa) fail(404);
-  if (ctx.fls || !ctx.inited || ctx.busy) fail(409);
+  if ((ctx.fls && !lock) || !ctx.inited || ctx.busy) fail(409);   // DEV-519 (M17): a lock works in an FLS state
   ctx.needToken();
   const s = scopes(ctx.token).find((x) => x.startsWith('storage:disk'));
   if (!s || ctx.token.sub === 'M') { await ctx.log(LOG.FAILED_SCOPE_CHECK, 1, ctx.token.sub, 'storage:disk'); fail(403); }
@@ -400,7 +468,7 @@ export async function unlock(ctx, suffix) {
   return {};
 }
 export async function lock(ctx) {
-  const { disk } = await storageAccess(ctx);
+  const { disk } = await storageAccess(ctx, { lock: true });
   ctx.dev.storage[disk].mode = '-'; ctx.touch('dev');
   await ctx.log(LOG.STORAGE_LOCK, 0, ctx.token.sub, String(disk));
   return {};
@@ -420,7 +488,8 @@ export async function loggerKey(ctx, seg = null) {
     if (!nonce || nonce.length < 32 || nonce.length > 64) fail(400);
   } else { nonce = Buffer.from(issueNonce(ctx.boot), 'base64'); ctx.touch('boot'); }
   const k = crypto.createPrivateKey({ key: Buffer.from(ctx.dev.logKey.priv, 'base64'), format: 'der', type: 'pkcs8' });
-  return { json: { key: ctx.dev.logKey.pub, nonce: b64(nonce), nonce_signed: b64(crypto.sign(null, nonce, k)) } };
+  // DEV-519: signed over the label + nonce, so the proof differs from the log header certificate (a signature over a raw 32 B value)
+  return { json: { key: ctx.dev.logKey.pub, nonce: b64(nonce), nonce_signed: b64(crypto.sign(null, Buffer.concat([Buffer.from('encedo-logger-key:v1:'), nonce]), k)) } };
 }
 export async function loggerRest(ctx, rest) {
   if (rest.startsWith('key/')) return loggerKey(ctx, rest.slice(4));

@@ -87,7 +87,7 @@ node test/personalise.mjs https://test.localhost      # as hem-api-tester does: 
 node sdk/test/device.mjs https://test.localhost       # the SDK's real-device suite
 ```
 
-hem-api-tester (branch `fw-1.3.x`, checked out next to this repo) runs in a PHP
+hem-api-tester (branch `main`, checked out next to this repo) runs in a PHP
 container that trusts the Caddy root; the tester's own `config.php` is left
 alone and only pointed at the module:
 
@@ -99,13 +99,13 @@ State of the suites (local `test.localhost` and production `test.playground.ence
 
 | Suite | Result |
 |---|---|
-| `sdk/test/device.mjs` | 35 / 35 |
+| `sdk/test/device.mjs` | 36 / 36 |
 | tester T-1, T-3, T-4, T-9, T-10, T-11, T-12, T-14 | PASS (DIAG subtests skipped, as on a release build) |
 | T-5, T-6 | PASS with `EXTAUTH=1` (`ExtAuth_Simulator.php` as the phone, through the real api.encedo.com) |
 | T-7 | 7.2 (firmware upload) and 7.3 (Manager upload) PASS with `TESTER_INPUT='2\n'` / `'3\n'`; 7.1 flashes over USB, not for a virtual module |
 | T-8 | PASS (8.1; 8.2–8.5 need a DIAG build) |
 | T-13 | 13.1–13.5 pass; 13.6 does not. On a PPA it expects a chain through the PPA Custody CA; the playground's certificate is from the EPA Custody CA. On an EPA it expects a CSR and no certificate |
-| T-15 | PASS locally; on production 15.13 gets nginx's own 400 for Transfer-Encoding + Content-Length (the firmware says 501) |
+| T-15 | PASS but the proxy cases: 15.19 (folded header line), 15.22 b (an upload whose body stops) and 15.26 (TLS / header / body deadlines) are answered by the proxy in front, not the module (DEV-519); on production also 15.13, nginx's own 400 for Transfer-Encoding + Content-Length (the firmware says 501). 15.27–15.33 need a DIAG build |
 | T-2, T-16 | not on the playground: they register `my.ence.do` at api.encedo.com with the genuine token (T-16 runs T-2 per policy); `test/personalise.mjs` personalises the same way without that step |
 
 Reset the module (admin panel, or `docker compose exec redis redis-cli DEL test`

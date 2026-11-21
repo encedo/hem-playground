@@ -77,7 +77,7 @@ export class Ctx {
    *  `upt` (uptime when the login started), `v` and, from ext/token, the app's `actx`. */
   issueToken({ scope, sub, exp, ctx, upt = uptime(this._boot), actx }) {
     const p = { scope, sub, iat: this.now, exp, jti: b64(rand(32)) };
-    if (typeof ctx === 'string' && ctx.length >= 1 && ctx.length <= 64) p.ctx = ctx;
+    if (ctxOk(ctx)) p.ctx = ctx;
     const org = this.headers?.origin;
     if (typeof org === 'string' && org.length <= 128) p.org = org;
     p.upt = upt; p.v = 1;
@@ -87,12 +87,18 @@ export class Ctx {
 }
 
 export const MAX_TOKEN = 2048;
+/** Token lifetime: 5 min when the request names none, at most 12 h (DEV-519). */
+export const TOKEN_DEFAULT_LIFE = 300, TOKEN_MAX_LIFE = 12 * 3600;
+/** 1..64 bytes of UTF-8, as the firmware counts a token ctx (strlen). */
+export const ctxOk = (v) => typeof v === 'string' && Buffer.byteLength(v, 'utf8') >= 1 && Buffer.byteLength(v, 'utf8') <= 64;
 
 /** Validate a bearer token against this boot's key. null when invalid. */
 export function checkBearer(boot, header, now) {
   const m = /^bearer\s+(\S+)$/i.exec(header ?? '');
   if (!m || m[1].length > MAX_TOKEN) return null;           // DEV-511: longer → 401 before the decode
-  const p = jwtVerify(jwtParse(m[1]), Buffer.from(boot.tokenKey, 'base64'), now);
+  const parsed = jwtParse(m[1]);
+  if (parsed && 'ecdh' in parsed.header) return null;     // DEV-518: that header belongs to the signed request JWTs only
+  const p = jwtVerify(parsed, Buffer.from(boot.tokenKey, 'base64'), now);
   if (!p || typeof p.exp !== 'number' || p.sub == null) return null;
   if (!(typeof p.scope === 'string' ? p.scope.length > 0 : Array.isArray(p.scope) && p.scope.length > 0)) return null;
   return p;
