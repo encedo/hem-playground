@@ -172,4 +172,8 @@ with this change. The image's `node:24-alpine` is newer.
 | start with the wrong key | refused, exit 1 |
 | `k:` value moved to another field by hand | does not decrypt |
 | 512 decryptions of a key record | 1.9 ms |
-| hem-api-tester | **not run**: needs Docker, and `../hem-api-tester` is on `main`, not `fw-1.3.x` (not switched, per CLAUDE.md) |
+| hem-api-tester `main` (71009ac), PHP 8.6 natively, T-1, 3, 4, 9–15 with the key | same as `main` of the playground without this change: T-1.5, T-9.1, T-11.1, T-13.6 (agreed), T-15.19 fail in both, everything else OK or skipped (no DIAG) |
+
+The tester failures other than T-13.6 come from the tester's newest DEV-519 checks (e.g. T-1.5 JSON nesting limit,
+T-15.19 malformed JWT segments, obs-fold, long Origin), which the simulator does not implement yet. They are not
+caused by this change: a run of the playground's `main` with no key gives the same list.
