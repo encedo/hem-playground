@@ -5,6 +5,9 @@
 # `docker build -`, so nothing of the source stays on the server; built there
 # because the server is amd64 and a desk may not be. The server keeps its own
 # /opt/hem-playground/.env (never copied from here).
+# After the restart it brings module data under the server's PG_DATA_KEY
+# (server/tools/encrypt-at-rest.mjs): a no-op when there is nothing to do, and the
+# rotation step when PG_DATA_KEY_OLD is set.
 set -e
 cd "$(dirname "$0")/.."
 HOST=${1:-attest.encedo.com}
@@ -15,4 +18,5 @@ scp -q deploy/compose.prod.yaml "$HOST:/opt/hem-playground/"
 tar -c Dockerfile .dockerignore server manager/index.html manager/favicon.svg manager/app \
        manager/sdk/hem-sdk.js manager/sdk/hem-sdk.browser.js \
   | ssh "$HOST" "docker build -q --build-arg PG_VERSION=$VERSION --build-arg PG_COMMIT=$COMMIT -t hem-playground:latest - >/dev/null && cd /opt/hem-playground && docker compose -f compose.prod.yaml up -d && docker image prune -f >/dev/null"
+ssh "$HOST" "cd /opt/hem-playground && sleep 3 && docker compose -f compose.prod.yaml exec -T app node server/tools/encrypt-at-rest.mjs"
 echo "deployed $VERSION ($COMMIT) to $HOST"

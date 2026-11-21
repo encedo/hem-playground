@@ -11,8 +11,9 @@ unchanged. An admin panel lists the modules and approves, blocks, resets,
 reboots or deletes them.
 
 **Nothing in a virtual module is secret.** Its keys, private halves and
-secrets included, are stored **unencrypted** in Redis on a shared server, and
-anyone with access to that server or to a copy of its data can read them. Its
+secrets included, are kept in Redis on a shared server. Redis holds them
+encrypted under `PG_DATA_KEY`, but that key is in the same server's `.env`, so
+anyone with access to the server can read them. Its
 attestation is signed with one key shared by the whole playground, which lies
 in the server's `.env`. The key's certificate comes from the Encedo EPA Custody
 CA for `*.playground.ence.do`, so it proves "a playground module", not a device.
@@ -38,7 +39,7 @@ Locally the domain is `localhost`: `https://localhost`, `https://admin.localhost
 server/
   index.mjs          HTTP server, Host routing, request log, rate limit
   registry.mjs       registration, admin actions, settings
-  lib/               Redis client (RESP, no dependency), store, SMTP mailer
+  lib/               Redis client (RESP, no dependency), store, data key (encryption at rest), SMTP mailer
   sim/               the simulated module
     http.mjs         pre-handler checks in firmware order, CORS, tokens, reply headers
     auth.mjs         /api/auth/*  (personalisation, password and phone sign-in)
@@ -78,6 +79,7 @@ Trust `.local/caddy-root.crt` once (browser, or `NODE_EXTRA_CA_CERTS` for Node).
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` | Encedo OIDC client (test: `https://test.oidc.encedo.com`) |
 | `SESSION_SECRET` | long random string |
 | `SMTP_HOST`, `SMTP_MODE` (`starttls` / `ssl`), `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | sign-in links and e-mail confirmation; without them both go to the app log (`docker compose logs app`) |
+| `PG_DATA_KEY` | module data encrypted at rest: `openssl rand -base64 32`. Without it modules are stored in plain text; once Redis holds encrypted data the app does not start without it. `PG_DATA_KEY_OLD`: the previous key, only during a rotation |
 
 ## Test it
 
@@ -121,6 +123,20 @@ the server (amd64), then restarts it with `deploy/compose.prod.yaml` in
 `playground.ence.do` and `*.playground.ence.do` with one Let's Encrypt
 certificate, issued and renewed through a CNAME to acme-dns on the same host
 (`deploy/acme-dns/`).
+
+After the restart `deploy.sh` runs `server/tools/encrypt-at-rest.mjs` in the
+app container. It re-encrypts under `PG_DATA_KEY` every module field that is
+plain or under `PG_DATA_KEY_OLD`, then has Redis rewrite its AOF and snapshot.
+With nothing to do it does nothing. `--dry-run` only counts.
+
+- **The key** is made on the server (`openssl rand -base64 32`) and goes into
+  `/opt/hem-playground/.env`, with a copy in `~/hem-playground-data-key`
+  (mode 600) outside `/opt`. It never leaves the server. Without it, every
+  module is lost.
+- **Rotation:** move the key to `PG_DATA_KEY_OLD`, put a new one in
+  `PG_DATA_KEY`, update the copy, deploy, check with `--dry-run` that nothing
+  is left under the old key, then remove `PG_DATA_KEY_OLD` and restart.
+- Copies of the Redis volume made before the migration still hold plain values.
 
 ## Differences from a real module
 
