@@ -404,6 +404,7 @@ async function seed() {
   }
 }
 
+try { console.log(await store.checkDataKey()); } catch (e) { console.error(e.message); process.exit(1); }
 await registry.migrateReserved().catch((e) => console.error('reserved migration', e.message));
 await seed().catch((e) => console.error('seed', e.message));
 server.listen(PORT, () => console.log(`HEM Playground on :${PORT} for ${DOMAIN} (manager from ${MANAGER_DIR}, OIDC ${auth.oidcEnabled() ? 'on' : 'off'}, mail ${mailer.configured ? 'on' : 'log only'})`));

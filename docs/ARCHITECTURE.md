@@ -1,12 +1,13 @@
 # HEM Playground: architecture
 
 > **Warning: nothing in the playground is secret.** Every key a virtual module
-> holds is stored **unencrypted** on the server: the private halves of the
-> asymmetric keys, the symmetric secrets, and the module's own device keys.
-> They sit in Redis as plain base64 and on the server's disk in Redis's own
-> files. Anyone with access to that server or to a copy of its data can read
-> every key of every module. There is no secure element, no encryption at rest
-> and no key wrapping. Treat every key made here as public. Never import a real
+> holds is on the server: the private halves of the asymmetric keys, the
+> symmetric secrets, and the module's own device keys. Redis holds them
+> encrypted under `PG_DATA_KEY` (see "Where things are kept"). That protects a
+> copy of Redis's files, or Redis alone. It does not protect against anyone
+> with access to the server, because the key lies in the same `.env` and the
+> app holds every value decrypted while it works. There is no secure element and
+> no key wrapping. Treat every key made here as public. Never import a real
 > key, and never put real data or a real password near it.
 >
 > The same goes for the playground's **attestation key**, which signs every
@@ -115,6 +116,30 @@ premium names, and the playground's own names).
 Redis writes its data to a Docker volume on the server: an append-only file
 and a snapshot every minute when enough changed. There is no other copy.
 
+### Encryption at rest
+
+When `PG_DATA_KEY` is set (32 random bytes, `.env`), every **value** in a module
+hash is encrypted before it goes into Redis (`server/lib/datakey.mjs`, used only
+by `server/lib/store.mjs`):
+
+- AES-256-GCM with a random IV for every write. The AAD is the field's place,
+  `<prefix>\0<field>`, so a value copied into another module or field does not
+  decrypt.
+- Stored as `e1:<key id>:<base64 of iv | ciphertext | tag>`, where the key id is
+  the first 8 hex characters of SHA-256 of the key. A value without `e1:` is
+  plain JSON from before the key, read as it is and encrypted on its next write.
+- **Plain:** field names (`k:<kid>` reveals the KID, a hash of the public key)
+  and the global `@` hashes (`@settings`, `@passkeys`, `@reserved`), which hold
+  no secrets.
+- `PG_DATA_KEY_OLD` is read during a rotation, and never used for writing.
+- At start-up, if no key is set and some module's `meta` is encrypted, the app
+  stops. Otherwise it would answer 500 for every module.
+- A value that does not decrypt makes that request fail with 500, and the log
+  names the module and field. Nothing is overwritten.
+- `server/tools/encrypt-at-rest.mjs` (run by `deploy.sh`) brings every value
+  under the current key. It rewrites a field only if Redis still holds what it
+  read, so it can run while the app is live.
+
 ### Attestation
 
 Every module, PPA and EPA, signs its attestation (`genuine` and the attestation
@@ -216,5 +241,6 @@ module keeps only the public keys the passwords derive.
   read every key (see the warning at the top).
 
 **Nothing in it is secret.** Every private key, secret and device key is
-stored unencrypted on a server several people can reach. Use it with test
+encrypted under a key that lies on the same server, which several people can
+reach. Use it with test
 keys and test data only.
