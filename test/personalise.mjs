@@ -7,6 +7,7 @@ const url = process.argv[2] ?? 'https://test.localhost';
 const hem = new HEM(url);
 const st = await hem.getStatus();
 if (!('inited' in st)) { console.log(`${url} is personalised already`); process.exit(0); }
+if (!('time' in st)) await hem.hemCheckin();   // no clock after a power-up: init answers 403 until a check-in (T-1.3)
 const host = new URL(url).hostname;
 const r = await hem.initialize('example admin passphrase', 'example passphrase', {
   user: 'Playground tester', email: 'test@playground.local', hostname: host, origin: '*',

@@ -70,7 +70,7 @@ export function newBoot(dev) {
     busyUntil: 0,                  // a disk format after init (PPA)
     formatPolls: 0,
     logId: Math.floor(started / 1000).toString(16).padStart(8, '0'),
-    rtcSet: true,                  // the virtual clock is the server's: always set
+    rtcSet: false,                 // no clock after a power-up until a check-in (or a bootstrap auth/token iat) sets it
     shutdown: false,
   };
 }

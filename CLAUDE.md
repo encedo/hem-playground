@@ -64,8 +64,12 @@ export NODE_EXTRA_CA_CERTS=.local/caddy-root.crt
 node test/personalise.mjs https://test.localhost
 node sdk/test/device.mjs https://test.localhost                                # 36/36
 test/run-tester.sh test_1.php test_3.php test_4.php test_9.php test_10.php \
-  test_11.php test_12.php test_13.php test_14.php test_15.php                   # all PASS but T-13.6
+  test_11.php test_12.php                                                       # all PASS
 ```
+
+The playground is tested up to test_12 (owner, 2026-11-25): test_13 and later are tests of
+the firmware, not of the simulator. A module starts with no clock after every power-up, as
+the firmware does, so personalise.mjs checks in first.
 
 T-2, T-13.6 and T-16 cannot pass on a virtual module (T-2 / T-16: domain registration at
 api.encedo.com; T-13.6: the certificate is from the EPA Custody CA, and an EPA returns it

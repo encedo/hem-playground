@@ -98,7 +98,7 @@ export async function postCheckin(ctx) {
   if (pl.newcrt !== undefined) j.newcrt = 'ERROR';
   if (pl.newfws !== undefined) j.newfws = pl.newfws;
   if (pl.newuis !== undefined && ctx.ppa) j.newuis = pl.newuis;
-  if (typeof pl.iat === 'number' && pl.iat) { ctx.boot.rtcSet = true; ctx.touch('boot'); }
+  if (typeof pl.iat === 'number' && pl.iat && !ctx.boot.rtcSet) { ctx.boot.rtcSet = true; ctx.touch('boot'); await ctx.log(LOG.RTC_SET, 0); }
   // Remote actions are reported, never run: a playground module is not to be locked or wiped by the backend.
   return { json: j };
 }

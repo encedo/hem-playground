@@ -68,7 +68,11 @@ export async function postToken(ctx) {
     pl.consume();
     if (!validScope(pl.scope)) fail(400);
     const iat = typeof pl.iat === 'number' ? pl.iat : null;
-    // DEV-519: 5 min without exp (was 60 s), at most 12 h ahead of the device clock (always set here)
+    // DEV-501 bootstrap: without trusted_ts the iat of a login sets a clock not yet set (in range, after the init)
+    if (!ctx.boot.rtcSet && !ctx.dev.cfg.trusted_ts && iat > 1631050000 && iat < 4102444800 && iat > ctx.dev.inited) {
+      ctx.boot.rtcSet = true; ctx.touch('boot'); await ctx.log(LOG.RTC_SET, 0);
+    }
+    // DEV-519: 5 min without exp (was 60 s), at most 12 h ahead of the device clock
     let exp = typeof pl.exp === 'number' && pl.exp > 0 ? pl.exp : (iat ?? ctx.now) + TOKEN_DEFAULT_LIFE;
     if (iat !== null && exp < iat) exp = iat + 30;
     exp = Math.min(exp, ctx.now + TOKEN_MAX_LIFE);

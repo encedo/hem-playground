@@ -140,7 +140,7 @@ With nothing to do it does nothing. `--dry-run` only counts.
 
 ## Differences from a real module
 
-- The clock is always set (the server's), so `RTC not set` (403) never happens.
+- A module has no clock after a power-up (a new module, a reboot, a reset), as the firmware: `auth/init` and the ext logins answer 403 and the status has no `ts` / `time` until a check-in sets it. The time it then keeps is the server's.
 - Check-in runs against the real `api.encedo.com`; remote actions (lock, wipe,
   brick) are reported but never carried out.
 - No TLS key import, CSR or provisioning: the playground ends TLS itself.
