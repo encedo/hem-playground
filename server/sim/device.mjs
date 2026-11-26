@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import { b64, b64url, hex, rand, x25519NewRaw, hmac } from './codec.mjs';
 
-export const FW_VERSION = 'Encedo nGINE FW v1.3.2-sim';
+export const FW_VERSION = 'Encedo nGINE FW v1.3.1-sim';
 export const BL_VERSION = 'Encedo Secure Bootloader v2.0.2';
 // The release footer of the firmware the playground pretends to run: the
 // application X25519 key the check-in is keyed with, and the publisher key.
